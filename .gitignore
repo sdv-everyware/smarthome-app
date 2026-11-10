@@ -1,0 +1,7 @@
+# fetch logs and the backups fetch-dcf.sh keeps of older documents
+data/*.fetch.log
+data/*.dcf.*
+.vscode/
+
+# design/build.sh output: built again from the patches, opened in Figma from here
+design/build/

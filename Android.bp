@@ -1,0 +1,76 @@
+// Smarthome panel on harry: SDV Media as the OS of an embedded device.
+// Docs and scripts: vendor/sdv-everyware/everyware/ (docs/README.md, scripts/).
+//
+// Lives here and not in vendor/sdv-everyware because harry's app-side crates (app utils, the
+// platform looper, evdev, har_log) are only visible to modules under
+// packages/services/display_safety.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+rust_binary {
+    name: "smarthome_app",
+    crate_root: "src/main.rs",
+    srcs: [
+        "data/*.otf",
+    ],
+    rustlibs: [
+        "libclap",
+        "libcustomizations",
+        // --wayland-zones: the Wayland bridge that shows other harry processes in zone
+        // nodes (har-gl-context/src/wayland_bridge)
+        "libhar_gl_context",
+        "libhar_log",
+        "libhar_monitoring",
+        "libhar_platform_api",
+        "libhar_types",
+        "libhar_user_input_evdev",
+        "libharry",
+        "libharry_app_platform_specific",
+        "libharry_app_utils",
+        // localtime_r: the local time in the system's time zone (clock.rs)
+        "liblibc",
+        "liblog_rust",
+        // UI components: vendor/sdv-everyware/ui-lib
+        "libeveryware_ui",
+        // the house's data from the dashboard bundle over gRPC (house_link.rs)
+        "libgrpcio",
+        "libfutures",
+        "libprotobuf",
+        "libeveryware_dashboard_grpc",
+        "libtracing",
+    ],
+    proc_macros: [
+        "libclap_derive",
+        "libderive_customizations",
+        "libhar_ui_model_derive",
+    ],
+    vendor_available: true,
+    min_sdk_version: "29",
+    prefer_rlib: true,
+    ld_flags: ["-Wl,--no-as-needed"],
+    // EGL and GLES of the platform: harry's context loads them at run time; linked here (as
+    // harry_app does) so an APEX declares them and its linker namespace sees them.
+    shared_libs: [
+        "libEGL",
+        "libGLESv2",
+    ],
+    arch: {
+        riscv64: {
+            enabled: false,
+        },
+    },
+}
+
+// The fetched design, for ui-lib's contract test (everyware_ui_test): the parts its
+// components set must be in the Figma library.
+filegroup {
+    name: "smarthome_app_dcf",
+    srcs: ["data/smarthome.dcf"],
+    visibility: [
+        "//vendor:__subpackages__",
+        // the APEX (apex/) installs it as its design
+        ":__subpackages__",
+    ],
+}
