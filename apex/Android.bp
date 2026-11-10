@@ -1,0 +1,61 @@
+// com.everyware.smarthome: the panel's UI process as a vendor APEX, the way HAR packages
+// harry (packages/services/display_safety/service/product/harry_apex): the binary, the libraries
+// it links (libimpeller, libgbm, libdrm, gRPC ...), the design (etc/smarthome/smarthome.dcf)
+// and the init script that starts it when the APEXes are mounted. Docs:
+// vendor/sdv-everyware/everyware/docs/concepts/9-starting-the-app.md.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+apex {
+    name: "com.everyware.smarthome",
+    manifest: "apex_manifest.json",
+    key: "com.everyware.smarthome.key",
+    // a vendor APEX: the binary runs in the vendor domain of HAR's UI process
+    // (vendor_harplatform, file_contexts)
+    vendor: true,
+    updatable: false,
+    min_sdk_version: "35",
+    file_contexts: "file_contexts",
+    prebuilts: [
+        "com.everyware.smarthome.init.rc",
+        "com.everyware.smarthome.dcf",
+    ],
+    arch: {
+        arm64: {
+            binaries: ["smarthome_app"],
+        },
+        x86_64: {
+            binaries: ["smarthome_app"],
+        },
+        riscv64: {
+            enabled: false,
+        },
+    },
+}
+
+// openssl genrsa -out keys/com.everyware.smarthome.pem 4096
+// avbtool extract_public_key --key keys/com.everyware.smarthome.pem \
+//     --output keys/com.everyware.smarthome.avbpubkey
+apex_key {
+    name: "com.everyware.smarthome.key",
+    public_key: "keys/com.everyware.smarthome.avbpubkey",
+    private_key: "keys/com.everyware.smarthome.pem",
+}
+
+// The init script: parsed by init after the APEX is mounted (etc/*.rc of an APEX).
+prebuilt_etc {
+    name: "com.everyware.smarthome.init.rc",
+    src: "init.smarthome.rc",
+    installable: false,
+}
+
+// The design the panel starts with (a design in /data/vendor/everyware/smarthome wins).
+prebuilt_etc {
+    name: "com.everyware.smarthome.dcf",
+    src: ":smarthome_app_dcf",
+    filename: "smarthome.dcf",
+    sub_dir: "smarthome",
+    installable: false,
+}

@@ -1,0 +1,7 @@
+{
+  "name": "com.everyware.smarthome",
+  "version": 1,
+  "requireNativeLibs": [
+    ":sphal"
+  ]
+}

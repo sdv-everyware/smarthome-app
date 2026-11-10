@@ -1,0 +1,21 @@
+# The panel's UI process: harry's looper, the dashboard, the touch input. Started by init once
+# every APEX is mounted (it links the libraries of this APEX and reads its design from it),
+# restarted by init when it ends. As HAR's harry it runs as root: it is the DRM master of the
+# display and opens the touch device; its SELinux domain is HAR's vendor_harplatform
+# (file_contexts). Docs: vendor/sdv-everyware/everyware/docs/concepts/9-starting-the-app.md.
+service smarthome /apex/com.everyware.smarthome/bin/smarthome_app \
+        --data-path /apex/com.everyware.smarthome/etc/smarthome \
+        --override-path /data/vendor/everyware/smarthome \
+        --document-id smarthome.dcf \
+        --touch-size 1920x1080
+    class main
+    user root
+    group graphics input audio
+    disabled
+    updatable
+
+on property:apex.all.ready=true
+    # a design pushed for a test (adb push smarthome.dcf /data/vendor/everyware/smarthome/)
+    mkdir /data/vendor/everyware 0770 root graphics
+    mkdir /data/vendor/everyware/smarthome 0770 root graphics
+    start smarthome
