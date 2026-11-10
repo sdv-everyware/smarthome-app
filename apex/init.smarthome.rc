@@ -28,6 +28,7 @@ on property:apex.all.ready=true
     # the runtime directory: the panel writes it, the browser's group (the Debian root's user
     # browser, an OEM id no Android user has) may enter it
     mkdir /data/vendor/everyware/run 0750 root oem_2900
-    # the socket of the boot before: a client must not find it before the panel serves it again
+    # the socket of the boot before: a client must not find it before the panel serves it
+    # again (on a first boot there is none; init logs the failed rm and goes on)
     rm /data/vendor/everyware/run/har-display
     start smarthome
