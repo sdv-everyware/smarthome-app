@@ -7,7 +7,14 @@ service smarthome /apex/com.everyware.smarthome/bin/smarthome_app \
         --data-path /apex/com.everyware.smarthome/etc/smarthome \
         --override-path /data/vendor/everyware/smarthome \
         --document-id smarthome.dcf \
-        --touch-size 1920x1080
+        --touch-size 1920x1080 \
+        --wayland-zones \
+        --zone-plane
+    # Wayland zones: the panel serves the socket har-display in its runtime directory, where a
+    # client of a zone (the browser) finds it, with the two FIFOs of the browser next to it
+    setenv XDG_RUNTIME_DIR /data/vendor/everyware/run
+    setenv HAR_BROWSER_FIFO /data/vendor/everyware/run/har-browser-open
+    setenv HAR_BROWSER_EVENTS /data/vendor/everyware/run/har-browser-events
     class main
     user root
     group graphics input audio
@@ -18,4 +25,9 @@ on property:apex.all.ready=true
     # a design pushed for a test (adb push smarthome.dcf /data/vendor/everyware/smarthome/)
     mkdir /data/vendor/everyware 0770 root graphics
     mkdir /data/vendor/everyware/smarthome 0770 root graphics
+    # the runtime directory: the panel writes it, the browser's group (the Debian root's user
+    # browser, an OEM id no Android user has) may enter it
+    mkdir /data/vendor/everyware/run 0750 root oem_2900
+    # the socket of the boot before: a client must not find it before the panel serves it again
+    rm /data/vendor/everyware/run/har-display
     start smarthome
