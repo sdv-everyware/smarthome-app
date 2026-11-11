@@ -1,0 +1,33 @@
+// screen_probe: a test tool for the screen link, not in the image. It calls the panel the way a
+// stranger would: over binder with no SDV identity or with one it registers (root may register
+// any FQIN with the identity agent), and on the gRPC port with the Wi-Fi calls. Run as root from
+// /data/local/tmp; the commands are in src/main.rs.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+rust_binary {
+    name: "screen_probe",
+    crate_name: "screen_probe",
+    srcs: ["src/main.rs"],
+    // one file to push: the Rust crates are linked in; the native gRPC and binder libraries are
+    // on the board already
+    prefer_rlib: true,
+    // not in any PRODUCT_PACKAGES, so not in the image; `installable: false` would also drop
+    // the `m screen_probe` target
+    rustlibs: [
+        "libbinder_rs",
+        "com.everyware.screen-V1-rust",
+        "google.sdv.identity-V2-rust",
+        "libgrpcio",
+        "libfutures",
+        "libprotobuf",
+        "libeveryware_dashboard_grpc",
+    ],
+    arch: {
+        riscv64: {
+            enabled: false,
+        },
+    },
+}

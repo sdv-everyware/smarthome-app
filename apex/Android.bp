@@ -21,6 +21,8 @@ apex {
     prebuilts: [
         "com.everyware.smarthome.init.rc",
         "com.everyware.smarthome.dcf",
+        // the screen link it serves (com.everyware.screen.IScreenLink/default)
+        "com.everyware.smarthome.vintf",
     ],
     arch: {
         arm64: {
@@ -48,6 +50,15 @@ apex_key {
 prebuilt_etc {
     name: "com.everyware.smarthome.init.rc",
     src: "init.smarthome.rc",
+    installable: false,
+}
+
+// The VINTF fragment: servicemanager takes the registration of a vintf interface only when a
+// manifest declares it.
+prebuilt_etc {
+    name: "com.everyware.smarthome.vintf",
+    src: "com.everyware.screen.xml",
+    sub_dir: "vintf",
     installable: false,
 }
 

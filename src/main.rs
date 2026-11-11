@@ -35,6 +35,7 @@ mod browser;
 mod clock;
 mod config;
 mod devices;
+mod screen_binder;
 mod house_link;
 mod news;
 
@@ -167,6 +168,8 @@ fn main() {
 
     // The house's data: the dashboard bundle pushes it here over a local gRPC link.
     house_link::spawn(actions.clone());
+    // Wi-Fi: over binder, where the caller is known (screen_binder.rs)
+    screen_binder::spawn(actions.clone());
     // How the page in the panel's browser is doing: the loader goes when it shows.
     browser::spawn_events(actions.clone());
 
