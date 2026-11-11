@@ -3,7 +3,7 @@
  */
 
 use crate::clock::Clock;
-use crate::house_binder;
+use crate::screen_binder;
 use crate::house_link;
 use crate::devices::{DeviceId, Devices, Reported};
 use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, SETPOINT, STATUS_ENTER};
@@ -133,7 +133,7 @@ impl StateAction<State, ()> for HomeAction {
                 // the Wi-Fi indicator opens the sheet; the sheet starts over every time
                 if state.dash.wifi.on(*gesture) == Some(ButtonEvent::Clicked) && !state.wifi.form.is_open() {
                     state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone());
-                    house_binder::send_wifi_command(wifi_scan());
+                    screen_binder::send_wifi_command(wifi_scan());
                 }
             }
             HomeAction::Gesture(node, gesture) if state.wifi.form.is_open() => {
@@ -442,7 +442,7 @@ fn on_sheet(wifi: &mut WifiSheet, osk: &mut KeyboardDock, node: &str, gesture: G
         "#wifi/rescan" => {
             if wifi.rescan.on(gesture) == Some(ButtonEvent::Clicked) {
                 log::info!("smarthome: Wi-Fi rescan");
-                house_binder::send_wifi_command(wifi_scan());
+                screen_binder::send_wifi_command(wifi_scan());
             }
         }
         "#wifi/reveal" => {
@@ -503,7 +503,7 @@ fn choose(wifi: &mut WifiSheet, row: usize) {
     } else {
         log::info!("smarthome: joining {:?}", network.ssid);
         wifi.list.select(Some(row));
-        house_binder::send_wifi_command(wifi_connect(&network.ssid, "", network.security));
+        screen_binder::send_wifi_command(wifi_connect(&network.ssid, "", network.security));
     }
 }
 
@@ -517,7 +517,7 @@ fn connect(wifi: &mut WifiSheet) {
     }
     let Some(network) = wifi.chosen().cloned() else { return };
     log::info!("smarthome: joining {:?} with a password of {len} characters", network.ssid);
-    house_binder::send_wifi_command(wifi_connect(&network.ssid, &wifi.password().text, network.security));
+    screen_binder::send_wifi_command(wifi_connect(&network.ssid, &wifi.password().text, network.security));
     wifi.password_mut().helper = format!("Joining {}…", network.ssid);
 }
 

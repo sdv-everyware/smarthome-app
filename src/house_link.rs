@@ -6,7 +6,7 @@
  * screen's Matter commands, goes down a server stream the bundle opens: the app never opens a
  * connection, and the Matter bundle decides what a command means. Wi-Fi is not on this link: it
  * carries the password typed on the screen, so it goes over binder, where the caller is known
- * (house_binder.rs); the Wi-Fi calls here fail.
+ * (screen_binder.rs); the Wi-Fi calls here fail.
  */
 
 use crate::actions::HomeAction;
@@ -91,7 +91,7 @@ impl DashboardService for Service {
         });
     }
 
-    // Wi-Fi goes over binder (house_binder.rs): any local process can reach this port.
+    // Wi-Fi goes over binder (screen_binder.rs): any local process can reach this port.
     fn publish_wifi_networks(&mut self, ctx: RpcContext<'_>, _networks: WifiNetworks, sink: UnarySink<Ack>) {
         refuse(&ctx, sink);
     }
@@ -150,7 +150,7 @@ impl DashboardService for Service {
 
 /// What a Wi-Fi call on this port gets.
 fn wifi_moved() -> RpcStatus {
-    RpcStatus::with_message(RpcStatusCode::PERMISSION_DENIED, "Wi-Fi goes over com.everyware.house.IHouseLink".into())
+    RpcStatus::with_message(RpcStatusCode::PERMISSION_DENIED, "Wi-Fi goes over com.everyware.screen.IScreenLink".into())
 }
 
 fn refuse(ctx: &RpcContext<'_>, sink: UnarySink<Ack>) {

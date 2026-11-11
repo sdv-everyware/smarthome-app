@@ -1,9 +1,9 @@
-//! house_probe: calls the panel's house link as a stranger and prints what the panel answers.
+//! screen_probe: calls the panel's house link as a stranger and prints what the panel answers.
 //!
-//!   house_probe whois <pid> <uid>                  the SDV identity of a process
-//!   house_probe binder                             IHouseLink.subscribeWifiCommands, no identity
-//!   house_probe binder-as <vm> <package> <bundle>  the same after registering that FQIN (root)
-//!   house_probe grpc                               the four Wi-Fi calls on 127.0.0.1:7100
+//!   screen_probe whois <pid> <uid>                  the SDV identity of a process
+//!   screen_probe binder                             IScreenLink.subscribeWifiCommands, no identity
+//!   screen_probe binder-as <vm> <package> <bundle>  the same after registering that FQIN (root)
+//!   screen_probe grpc                               the four Wi-Fi calls on 127.0.0.1:7100
 //!
 //! subscribeWifiCommands is the call: EX_SECURITY means the caller check refused, EX_ILLEGAL_STATE
 //! that it let the caller in (the real sink is subscribed), and nothing on the screen changes.
@@ -11,8 +11,8 @@
 //! and the screen's Wi-Fi commands go nowhere until the panel or the dashboard bundle restarts.
 
 use binder::{BinderFeatures, Interface, Strong};
-use com_everyware_house::aidl::com::everyware::house::IHouseLink::IHouseLink;
-use com_everyware_house::aidl::com::everyware::house::IWifiCommandSink::{BnWifiCommandSink, IWifiCommandSink};
+use com_everyware_screen::aidl::com::everyware::screen::IScreenLink::IScreenLink;
+use com_everyware_screen::aidl::com::everyware::screen::IWifiCommandSink::{BnWifiCommandSink, IWifiCommandSink};
 use everyware_dashboard_grpc::dashboard::{Subscribe, WifiCommandResult};
 use everyware_dashboard_grpc::dashboard_grpc::DashboardServiceClient;
 use everyware_dashboard_grpc::wifi::{WifiNetworks, WifiState};
@@ -24,7 +24,7 @@ use google_sdv_identity::aidl::google::sdv::identity::ServiceIdentity::EcPublicK
 use grpcio::{ChannelBuilder, EnvBuilder};
 use std::sync::Arc;
 
-const HOUSE: &str = "com.everyware.house.IHouseLink/default";
+const SCREEN: &str = "com.everyware.screen.IScreenLink/default";
 const AGENT: &str = "google.sdv.identity.IIdentityAgent/default";
 
 struct Sink;
@@ -41,7 +41,7 @@ fn agent() -> Strong<dyn IIdentityAgent> {
 }
 
 fn subscribe() {
-    let house = binder::check_interface::<dyn IHouseLink>(HOUSE).expect("house link");
+    let house = binder::check_interface::<dyn IScreenLink>(SCREEN).expect("house link");
     let sink = BnWifiCommandSink::new_binder(Sink, BinderFeatures::default());
     match house.subscribeWifiCommands(&sink) {
         Ok(()) => println!("subscribeWifiCommands: ACCEPTED (the probe now takes the commands)"),
@@ -85,6 +85,6 @@ fn main() {
                 Err(err) => println!("WifiCommands: {err}"),
             }
         }
-        _ => eprintln!("usage: house_probe whois <pid> <uid> | binder | binder-as <vm> <package> <bundle> | grpc"),
+        _ => eprintln!("usage: screen_probe whois <pid> <uid> | binder | binder-as <vm> <package> <bundle> | grpc"),
     }
 }

@@ -1,9 +1,9 @@
-<!-- The panel serves the house link to the dashboard bundle (house_binder.rs): a vintf-stable
+<!-- The panel serves the screen link to the dashboard bundle (screen_binder.rs): a vintf-stable
      interface in a vendor APEX, declared here so servicemanager takes the registration. -->
 <manifest version="1.0" type="device">
     <hal format="aidl">
-        <name>com.everyware.house</name>
+        <name>com.everyware.screen</name>
         <version>1</version>
-        <fqname>IHouseLink/default</fqname>
+        <fqname>IScreenLink/default</fqname>
     </hal>
 </manifest>

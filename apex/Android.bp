@@ -21,7 +21,7 @@ apex {
     prebuilts: [
         "com.everyware.smarthome.init.rc",
         "com.everyware.smarthome.dcf",
-        // the house link it serves (com.everyware.house.IHouseLink/default)
+        // the screen link it serves (com.everyware.screen.IScreenLink/default)
         "com.everyware.smarthome.vintf",
     ],
     arch: {
@@ -57,7 +57,7 @@ prebuilt_etc {
 // manifest declares it.
 prebuilt_etc {
     name: "com.everyware.smarthome.vintf",
-    src: "com.everyware.house.xml",
+    src: "com.everyware.screen.xml",
     sub_dir: "vintf",
     installable: false,
 }

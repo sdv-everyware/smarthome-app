@@ -39,10 +39,10 @@ rust_binary {
         "libfutures",
         "libprotobuf",
         "libeveryware_dashboard_grpc",
-        // Wi-Fi from the dashboard bundle over binder (house_binder.rs): the interface, and the
+        // Wi-Fi from the dashboard bundle over binder (screen_binder.rs): the interface, and the
         // SDV identity agent that names the caller
         "libbinder_rs",
-        "com.everyware.house-V1-rust",
+        "com.everyware.screen-V1-rust",
         "google.sdv.identity-V2-rust",
         "libtracing",
     ],
