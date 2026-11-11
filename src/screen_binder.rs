@@ -63,15 +63,15 @@ pub struct MatterCommandResult {
 struct Subscriber {
     sink: Strong<dyn ICommandSink>,
     _death: DeathRecipient,
+    /// The process (pid, uid) that handed in the sink, after the identity agent named it the
+    /// dashboard bundle: its calls pass without asking the agent again, as long as the sink
+    /// lives. Any other caller is asked every time (the bundle subscribes before it publishes,
+    /// so only a stranger pays for that). Not the uid alone: uid 0 is shared by many processes.
+    /// None once the sink died: a pid is reused, and the next process with it must be asked.
+    trusted: Option<(i32, u32)>,
 }
 
 static SUBSCRIBER: Mutex<Option<Subscriber>> = Mutex::new(None);
-
-/// The process (pid, uid) the identity agent named the dashboard bundle, so the agent is asked
-/// once per process. Not the uid alone: uid 0 is shared by many processes, and one that passed
-/// (root may register any FQIN) would let every other root process in. Cleared when the bundle's
-/// sink dies: a pid is reused, and the next process with it must be asked again.
-static ALLOWED: Mutex<Option<(i32, u32)>> = Mutex::new(None);
 
 /// Where the link's actions go (set by spawn).
 static ACTIONS: OnceLock<Mutex<Sender<Actions<HomeAction>>>> = OnceLock::new();
@@ -82,9 +82,9 @@ fn act(action: HomeAction) {
     }
 }
 
-/// The bundle's process is gone: the screen says so, and its (pid, uid) is no longer trusted.
+/// The bundle's process is gone: the screen says so. Called with SUBSCRIBER held, so a new
+/// subscribe cannot get in between and be followed by this.
 fn bundle_gone() {
-    *ALLOWED.lock().expect("allowed caller") = None;
     act(HomeAction::HouseLink(false));
 }
 
@@ -115,7 +115,6 @@ fn send<M: Message>(what: &str, command: &M, call: impl FnOnce(&Strong<dyn IComm
         Err(err) if err.transaction_error() == StatusCode::DEAD_OBJECT => {
             log::warn!("screen link: the command sink is gone");
             *subscriber = None;
-            drop(subscriber);
             bundle_gone();
             false
         }
@@ -131,12 +130,13 @@ struct ScreenLink;
 impl Interface for ScreenLink {}
 
 impl ScreenLink {
-    /// The caller is the dashboard bundle, or the call fails with EX_SECURITY.
-    fn check_caller(&self) -> binder::Result<()> {
+    /// The caller is the dashboard bundle, or the call fails with EX_SECURITY; Ok: its pid and
+    /// uid.
+    fn check_caller(&self) -> binder::Result<(i32, u32)> {
         let (pid, uid) = (ThreadState::get_calling_pid(), ThreadState::get_calling_uid());
         // not held across the agent's call: other callers must not queue behind it
-        if *ALLOWED.lock().expect("allowed caller") == Some((pid, uid)) {
-            return Ok(());
+        if SUBSCRIBER.lock().expect("subscriber").as_ref().is_some_and(|s| s.trusted == Some((pid, uid))) {
+            return Ok((pid, uid));
         }
         let refuse = |why: String| {
             log::warn!("screen link: refused pid {pid} uid {uid}: {why}");
@@ -157,8 +157,7 @@ impl ScreenLink {
             return refuse(format!("{}.{}", fqin.sdvPackageName, fqin.serviceBundleName));
         }
         log::info!("screen link: the dashboard bundle is uid {uid} ({}/{})", fqin.serviceBundleName, fqin.serviceInstanceName);
-        *ALLOWED.lock().expect("allowed caller") = Some((pid, uid));
-        Ok(())
+        Ok((pid, uid))
     }
 
     fn act(&self, action: HomeAction) {
@@ -227,7 +226,7 @@ impl IScreenLink for ScreenLink {
     }
 
     fn subscribeCommands(&self, sink: &Strong<dyn ICommandSink>) -> binder::Result<()> {
-        self.check_caller()?;
+        let caller = self.check_caller()?;
         let mut subscriber = SUBSCRIBER.lock().expect("subscriber");
         if subscriber.as_ref().is_some_and(|current| current.sink.as_binder() == sink.as_binder()) {
             // the bundle asks again (it did not see the first answer): nothing changes
@@ -240,10 +239,13 @@ impl IScreenLink for ScreenLink {
         // On a binder thread when the bundle's process died. Only this sink's death counts: a
         // late one of a sink already replaced says nothing about the link.
         let watched = sink.as_binder();
+        // The sink stays (dropping it here would drop this recipient inside its own call): only
+        // its trust goes, and the next subscribe replaces the dead sink.
         let mut death = DeathRecipient::new(move || {
-            let current = SUBSCRIBER.lock().expect("subscriber").as_ref().map(|s| s.sink.as_binder());
-            if current.as_ref() == Some(&watched) {
+            let mut subscriber = SUBSCRIBER.lock().expect("subscriber");
+            if let Some(current) = subscriber.as_mut().filter(|s| s.sink.as_binder() == watched) {
                 log::warn!("screen link: the dashboard bundle is gone");
+                current.trusted = None;
                 bundle_gone();
             }
         });
@@ -251,7 +253,7 @@ impl IScreenLink for ScreenLink {
             log::warn!("screen link: the command sink died before it was taken");
             return Err(StatusCode::DEAD_OBJECT.into());
         }
-        *subscriber = Some(Subscriber { sink: sink.clone(), _death: death });
+        *subscriber = Some(Subscriber { sink: sink.clone(), _death: death, trusted: Some(caller) });
         log::info!("screen link: the bundle takes the screen's commands");
         self.act(HomeAction::HouseLink(true));
         Ok(())
