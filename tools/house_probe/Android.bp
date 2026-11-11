@@ -11,8 +11,11 @@ rust_binary {
     name: "house_probe",
     crate_name: "house_probe",
     srcs: ["src/main.rs"],
-    // one file to push: the Rust crates linked in
+    // one file to push: the Rust crates are linked in; the native gRPC and binder libraries are
+    // on the board already
     prefer_rlib: true,
+    // never installed, also not by adb sync: pushed by hand for a test
+    installable: false,
     rustlibs: [
         "libbinder_rs",
         "com.everyware.house-V1-rust",

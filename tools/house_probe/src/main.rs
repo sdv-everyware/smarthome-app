@@ -7,6 +7,8 @@
 //!
 //! subscribeWifiCommands is the call: EX_SECURITY means the caller check refused, EX_ILLEGAL_STATE
 //! that it let the caller in (the real sink is subscribed), and nothing on the screen changes.
+//! ACCEPTED happens only when no live sink was there: the probe's sink then dies with the probe,
+//! and the screen's Wi-Fi commands go nowhere until the panel or the dashboard bundle restarts.
 
 use binder::{BinderFeatures, Interface, Strong};
 use com_everyware_house::aidl::com::everyware::house::IHouseLink::IHouseLink;
