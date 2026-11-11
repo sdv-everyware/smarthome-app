@@ -10,7 +10,7 @@ use everyware_ui::input_field::InputField;
 use everyware_ui::list_item::{ListItem, ListItemKind, ListItemLines, ListItemSize};
 use everyware_ui::list_view::ListView;
 use everyware_ui::design::Sizes;
-use everyware_ui::sheet::{Edge, Layout, Sheet};
+use everyware_ui::sheet::{Edge, Layout, Sheet, CLOSED_GAP};
 use everyware_ui::pressable::Pressable;
 use everyware_ui::segmented::Segmented;
 use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
@@ -67,6 +67,9 @@ pub const SCREEN: (f32, f32) = (1920.0, 1080.0);
 pub const WIFI_LAYOUT: Layout = Layout::Dialog;
 pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
+/// Where the keyboard's slot waits while the dock is closed (ui-lib dock.rs keys_position):
+/// the first value of its position, before the presenter's.
+pub const OSK_CLOSED: (f32, f32) = (0.0, SCREEN.1 + CLOSED_GAP);
 
 /// The dashboard's controls: library components in the slots of #smarthome-root
 /// (design/dashboard-patch.js). Local state until the bundles drive them.
