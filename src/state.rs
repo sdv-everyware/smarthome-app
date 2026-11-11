@@ -17,9 +17,9 @@ use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
 use everyware_ui::slider::Slider;
 use everyware_ui::toggle::Toggle;
 use crate::devices::{DeviceId, DeviceView, Devices};
-use everyware_dashboard_grpc::weather::Weather;
+use everyware_catalog::weather::Weather;
 use crate::clock::Clock;
-use everyware_dashboard_grpc::wifi::{WifiNetwork, WifiSecurity, WifiState};
+use everyware_catalog::wifi::{WifiNetwork, WifiSecurity, WifiState};
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -42,10 +42,10 @@ pub struct State {
     pub stories: Vec<crate::browser::Page>,
     /// The design's sizes (ui-lib design.rs): a dialog's card is as high as its content.
     pub sizes: Sizes,
-    /// The outdoor weather from the weather bundle (house_link.rs); None until the first
+    /// The outdoor weather from the weather bundle (screen_binder.rs); None until the first
     /// message.
     pub weather: Option<Weather>,
-    /// The dashboard bundle's heartbeats are coming in.
+    /// The dashboard bundle is linked: its command sink is subscribed and its process alive.
     pub house_link: bool,
     /// A Matter command in flight per tile (DeviceId::ALL's order): its control keeps what the
     /// finger set until the device answered (actions.rs follow_devices).

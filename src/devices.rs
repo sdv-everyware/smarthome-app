@@ -3,13 +3,13 @@
  *
  * A device is what it does (its function: a thermostat, a light, a fan) and what it is (vendor,
  * model, firmware, where in the Matter fabric). The Matter bundle reports both (topic
- * matter-devices, through the dashboard bundle: house_link.rs); a tile is bound to the first
+ * matter-devices, through the dashboard bundle: screen_binder.rs); a tile is bound to the first
  * endpoint of its device type. The values the dashboard controls (the setpoint, the light, the
  * dimmer, the fan) follow the device; what no device reported yet shows as a dash.
  */
 
 use crate::state::Dashboard;
-use everyware_dashboard_grpc::matter::{MatterDevices, MatterEndpoint, MatterNode};
+use everyware_catalog::matter::{MatterDevices, MatterEndpoint, MatterNode};
 use everyware_ui::symbol::SymbolIcon;
 
 /// Shown for a value no one reported yet.
