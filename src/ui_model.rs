@@ -7,7 +7,7 @@
  */
 
 use customizations::render_customizations::DisplayState;
-use customizations::{Customizer, DesignDocument, DesignDocumentRoot, UpdatePolicy};
+use customizations::{Customizer, DesignDocument, DesignDocumentRoot, ImageContentData, UpdatePolicy};
 use derive_customizations::DesignDocument;
 use har_platform_api::looper::DisplayId;
 use har_ui_model_derive::HarUiModel;
@@ -184,6 +184,8 @@ ui_model! {
     // rectangle (dashboard-patch.js): harry draws an external image only on a plain frame. The
     // scrim and the caption with #camera/open are drawn after it, on top of the client's frames.
     camera_zone: bool = "#camera/feed" ["ZoneCustomizer"] = crate::config::wayland_zones();
+    // the USB camera's frames (camera.rs): one transparent pixel until the camera streams
+    camera_image: ImageContentData = "#camera/feed" = crate::camera::placeholder();
     talk: Slot = "#intercom/talk" ["SlotCustomizer"];
 
     // weather (Open-Meteo): the widget in place of the energy one

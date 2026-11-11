@@ -47,6 +47,8 @@ pub struct State {
     pub weather: Option<Weather>,
     /// The dashboard bundle is linked: its command sink is subscribed and its process alive.
     pub house_link: bool,
+    /// The size of the camera's frames in the tile, once the camera streams (camera.rs).
+    pub camera: Option<(u32, u32)>,
     /// A Matter command in flight per tile (DeviceId::ALL's order): its control keeps what the
     /// finger set until the device answered (actions.rs follow_devices).
     pub matter_pending: [Option<std::time::Instant>; 4],

@@ -31,6 +31,7 @@ use std::thread;
 use std::time::Duration;
 
 mod actions;
+mod camera;
 mod browser;
 mod clock;
 mod config;
@@ -117,6 +118,8 @@ fn main() {
     let velocity = everyware_ui::Velocity::default();
     // The document-load monitor below takes looper_tx; the bridge needs its own sender.
     let bridge_tx = looper_tx.clone();
+    // the camera's frames go to the looper as resource updates (camera.rs)
+    let camera_tx = looper_tx.clone();
 
     // The design loads while the display and the GPU come up: the reducer only sends to the
     // looper's channel, which holds the display lists until the looper starts. Before, the
@@ -168,6 +171,7 @@ fn main() {
     // The house's data: the dashboard bundle pushes it here over binder, where the caller is
     // known (screen_binder.rs).
     screen_binder::spawn(actions.clone());
+    camera::spawn(actions.clone(), camera_tx);
     // How the page in the panel's browser is doing: the loader goes when it shows.
     browser::spawn_events(actions.clone());
 

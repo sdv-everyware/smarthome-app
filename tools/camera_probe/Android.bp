@@ -1,0 +1,23 @@
+// camera_probe: a test tool, not in the image. It lists the capture devices the way harry's
+// platform finds them (/dev/video*, capture and streaming) with their formats and frame sizes.
+// Run from /data/local/tmp as root.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+rust_binary {
+    name: "camera_probe",
+    crate_name: "camera_probe",
+    srcs: ["src/main.rs"],
+    prefer_rlib: true,
+    rustlibs: [
+        "libv4l2r",
+        "libglob",
+    ],
+    arch: {
+        riscv64: {
+            enabled: false,
+        },
+    },
+}
