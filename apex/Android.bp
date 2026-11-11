@@ -53,7 +53,8 @@ prebuilt_etc {
     installable: false,
 }
 
-// The design the panel starts with (a design in /data/vendor/everyware/smarthome wins).
+// The VINTF fragment: servicemanager takes the registration of a vintf interface only when a
+// manifest declares it.
 prebuilt_etc {
     name: "com.everyware.smarthome.vintf",
     src: "com.everyware.house.xml",
@@ -61,6 +62,7 @@ prebuilt_etc {
     installable: false,
 }
 
+// The design the panel starts with (a design in /data/vendor/everyware/smarthome wins).
 prebuilt_etc {
     name: "com.everyware.smarthome.dcf",
     src: ":smarthome_app_dcf",

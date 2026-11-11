@@ -9,7 +9,7 @@
  */
 
 use crate::actions::HomeAction;
-use binder::{BinderFeatures, ExceptionCode, IBinder, Interface, Status, Strong, ThreadState};
+use binder::{BinderFeatures, ExceptionCode, IBinder, Interface, Status, StatusCode, Strong, ThreadState};
 use com_everyware_house::aidl::com::everyware::house::IHouseLink::{BnHouseLink, IHouseLink};
 use com_everyware_house::aidl::com::everyware::house::IWifiCommandSink::IWifiCommandSink;
 use everyware_dashboard_grpc::dashboard::WifiCommandResult;
@@ -46,9 +46,15 @@ pub fn send_wifi_command(command: WifiCommand) {
         log::warn!("house binder: no Wi-Fi command sink, the command is dropped");
         return;
     };
-    if let Err(err) = sink.onCommand(&bytes) {
-        log::warn!("house binder: the Wi-Fi command sink is gone ({err})");
-        *subscriber = None;
+    match sink.onCommand(&bytes) {
+        Ok(()) => {}
+        // only a dead sink goes: a full async buffer fails a oneway call too, and the bundle
+        // subscribes again only when it sees the panel restart
+        Err(err) if err.transaction_error() == StatusCode::DEAD_OBJECT => {
+            log::warn!("house binder: the Wi-Fi command sink is gone");
+            *subscriber = None;
+        }
+        Err(err) => log::warn!("house binder: a Wi-Fi command did not go out ({err})"),
     }
 }
 
@@ -65,8 +71,8 @@ impl HouseLink {
     /// The caller is the dashboard bundle, or the call fails with EX_SECURITY.
     fn check_caller(&self) -> binder::Result<()> {
         let (pid, uid) = (ThreadState::get_calling_pid(), ThreadState::get_calling_uid());
-        let mut allowed = self.allowed_uid.lock().expect("allowed uid");
-        if *allowed == Some(uid) {
+        // not held across the agent's call: other callers must not queue behind it
+        if *self.allowed_uid.lock().expect("allowed uid") == Some(uid) {
             return Ok(());
         }
         let refuse = |why: String| {
@@ -88,7 +94,7 @@ impl HouseLink {
             return refuse(format!("{}.{}", fqin.sdvPackageName, fqin.serviceBundleName));
         }
         log::info!("house binder: the dashboard bundle is uid {uid} ({}/{})", fqin.serviceBundleName, fqin.serviceInstanceName);
-        *allowed = Some(uid);
+        *self.allowed_uid.lock().expect("allowed uid") = Some(uid);
         Ok(())
     }
 
@@ -131,6 +137,10 @@ impl IHouseLink for HouseLink {
     fn subscribeWifiCommands(&self, sink: &Strong<dyn IWifiCommandSink>) -> binder::Result<()> {
         self.check_caller()?;
         let mut subscriber = SUBSCRIBER.lock().expect("subscriber");
+        if subscriber.as_ref().is_some_and(|current| current.as_binder() == sink.as_binder()) {
+            // the bundle asks again (it did not see the first answer): nothing changes
+            return Ok(());
+        }
         if subscriber.as_ref().is_some_and(|current| current.as_binder().ping_binder().is_ok()) {
             log::warn!("house binder: a second Wi-Fi command sink is refused");
             return Err(Status::new_exception_str(ExceptionCode::ILLEGAL_STATE, Some("a sink is subscribed")));
@@ -146,7 +156,7 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>) {
     thread::spawn(move || {
         let service = HouseLink { actions: Mutex::new(actions), allowed_uid: Mutex::new(None) };
         let binder = BnHouseLink::new_binder(service, BinderFeatures::default());
-        // the pool first: libbinder caches a service only in a process that has threads for it
+        // the pool first, then the registration (as the Thread HAL's service does)
         binder::ProcessState::start_thread_pool();
         if let Err(err) = binder::add_service(SERVICE, binder.as_binder()) {
             log::error!("house binder: cannot register {SERVICE}: {err}");
