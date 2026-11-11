@@ -21,6 +21,8 @@ apex {
     prebuilts: [
         "com.everyware.smarthome.init.rc",
         "com.everyware.smarthome.dcf",
+        // the house link it serves (com.everyware.house.IHouseLink/default)
+        "com.everyware.smarthome.vintf",
     ],
     arch: {
         arm64: {
@@ -52,6 +54,13 @@ prebuilt_etc {
 }
 
 // The design the panel starts with (a design in /data/vendor/everyware/smarthome wins).
+prebuilt_etc {
+    name: "com.everyware.smarthome.vintf",
+    src: "com.everyware.house.xml",
+    sub_dir: "vintf",
+    installable: false,
+}
+
 prebuilt_etc {
     name: "com.everyware.smarthome.dcf",
     src: ":smarthome_app_dcf",

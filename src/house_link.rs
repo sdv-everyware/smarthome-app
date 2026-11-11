@@ -3,14 +3,16 @@
  * everyware/bundles/dashboard) subscribes to the house's topics and pushes every update here
  * over gRPC on 127.0.0.1; this process only listens. Every message and every heartbeat
  * becomes an action; a watchdog turns silence into one too. What goes the other way, the
- * screen's Wi-Fi and Matter commands, goes down server streams the bundle opens: the app never
- * opens a connection, and the Wi-Fi and Matter bundles decide what a command means.
+ * screen's Matter commands, goes down a server stream the bundle opens: the app never opens a
+ * connection, and the Matter bundle decides what a command means. Wi-Fi is not on this link: it
+ * carries the password typed on the screen, so it goes over binder, where the caller is known
+ * (house_binder.rs); the Wi-Fi calls here fail.
  */
 
 use crate::actions::HomeAction;
 use futures::channel::mpsc::{unbounded, UnboundedSender};
 use futures::{SinkExt, StreamExt};
-use grpcio::{Environment, RpcContext, ServerBuilder, ServerCredentials, ServerStreamingSink, UnarySink, WriteFlags};
+use grpcio::{Environment, RpcContext, RpcStatus, RpcStatusCode, ServerBuilder, ServerCredentials, ServerStreamingSink, UnarySink, WriteFlags};
 use harry::reducer::Actions;
 use everyware_dashboard_grpc::dashboard::{Ack, HeartbeatRequest, MatterCommandResult, Subscribe, WifiCommandResult};
 use everyware_dashboard_grpc::matter::MatterDevices;
@@ -24,11 +26,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
-/// The open command stream to the bundle, if any; a command sent while there is none is
-/// dropped (the sheet shows the link's state).
-static COMMANDS: OnceLock<Arc<Mutex<Option<UnboundedSender<WifiCommand>>>>> = OnceLock::new();
-
-/// The open Matter command stream to the bundle, likewise.
+/// The open Matter command stream to the bundle, if any; a command sent while there is none is
+/// dropped.
 static MATTER_COMMANDS: OnceLock<Arc<Mutex<Option<UnboundedSender<MatterCommand>>>>> = OnceLock::new();
 
 /// A command down an open stream; dropped (and logged) when there is none.
@@ -50,11 +49,6 @@ fn send<T>(stream: &OnceLock<Arc<Mutex<Option<UnboundedSender<T>>>>>, what: &str
             false
         }
     }
-}
-
-/// Sends a Wi-Fi command to the Wi-Fi bundle through the bridge.
-pub fn send_wifi_command(command: WifiCommand) {
-    send(&COMMANDS, "Wi-Fi", command);
 }
 
 /// Sends a Matter command to the Matter bundle through the bridge; false: it did not go out.
@@ -97,40 +91,23 @@ impl DashboardService for Service {
         });
     }
 
-    fn publish_wifi_networks(&mut self, ctx: RpcContext<'_>, networks: WifiNetworks, sink: UnarySink<Ack>) {
-        let _ = self.actions.send(Actions::CustomAction(HomeAction::WifiNetworks(networks)));
-        let _ = self.beats.send(());
-        ctx.spawn(async move {
-            let _ = sink.success(Ack::new()).await;
-        });
+    // Wi-Fi goes over binder (house_binder.rs): any local process can reach this port.
+    fn publish_wifi_networks(&mut self, ctx: RpcContext<'_>, _networks: WifiNetworks, sink: UnarySink<Ack>) {
+        refuse(&ctx, sink);
     }
 
-    fn publish_wifi_state(&mut self, ctx: RpcContext<'_>, state: WifiState, sink: UnarySink<Ack>) {
-        let _ = self.actions.send(Actions::CustomAction(HomeAction::WifiState(state)));
-        let _ = self.beats.send(());
-        ctx.spawn(async move {
-            let _ = sink.success(Ack::new()).await;
-        });
+    fn publish_wifi_state(&mut self, ctx: RpcContext<'_>, _state: WifiState, sink: UnarySink<Ack>) {
+        refuse(&ctx, sink);
     }
 
-    /// The Wi-Fi bundle's answer to a command of the screen (through the bridge).
-    fn publish_wifi_result(&mut self, ctx: RpcContext<'_>, result: WifiCommandResult, sink: UnarySink<Ack>) {
-        let _ = self.actions.send(Actions::CustomAction(HomeAction::WifiResult(result)));
-        ctx.spawn(async move {
-            let _ = sink.success(Ack::new()).await;
-        });
+    fn publish_wifi_result(&mut self, ctx: RpcContext<'_>, _result: WifiCommandResult, sink: UnarySink<Ack>) {
+        refuse(&ctx, sink);
     }
 
-    /// The bundle asks for the screen's commands: they go down this stream from now on.
     fn wifi_commands(&mut self, ctx: RpcContext<'_>, _request: Subscribe, sink: ServerStreamingSink<WifiCommand>) {
-        let (tx, rx) = unbounded();
-        *COMMANDS.get_or_init(Default::default).lock().expect("command stream") = Some(tx);
-        log::info!("house link: the bundle takes Wi-Fi commands");
-        let mut sink = sink;
+        log::warn!("house link: a Wi-Fi command stream asked for on the gRPC port, refused");
         ctx.spawn(async move {
-            let mut rx = rx.map(|command| Ok((command, WriteFlags::default())));
-            let _ = sink.send_all(&mut rx).await;
-            let _ = sink.close().await;
+            let _ = sink.fail(wifi_moved()).await;
         });
     }
 
@@ -169,6 +146,18 @@ impl DashboardService for Service {
             let _ = sink.success(Ack::new()).await;
         });
     }
+}
+
+/// What a Wi-Fi call on this port gets.
+fn wifi_moved() -> RpcStatus {
+    RpcStatus::with_message(RpcStatusCode::PERMISSION_DENIED, "Wi-Fi goes over com.everyware.house.IHouseLink".into())
+}
+
+fn refuse(ctx: &RpcContext<'_>, sink: UnarySink<Ack>) {
+    log::warn!("house link: a Wi-Fi call on the gRPC port, refused");
+    ctx.spawn(async move {
+        let _ = sink.fail(wifi_moved()).await;
+    });
 }
 
 /// Starts the server and the watchdog; returns when the server could not start.

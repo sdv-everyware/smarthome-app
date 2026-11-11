@@ -3,3 +3,4 @@
 /bin/smarthome_app                          u:object_r:vendor_harplatform_exec:s0
 /lib(64)?(/.*)?                             u:object_r:vendor_harplatform_lib_file:s0
 /etc/com.everyware.smarthome.init.rc        u:object_r:vendor_configs_file:s0
+/etc/vintf(/.*)?                            u:object_r:vendor_configs_file:s0
