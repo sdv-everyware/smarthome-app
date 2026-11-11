@@ -28,7 +28,7 @@ use google_sdv_identity::aidl::google::sdv::identity::ProcessIdentifier::Process
 use harry::reducer::Actions;
 use protobuf::Message;
 use std::sync::mpsc::Sender;
-use std::sync::{Arc, Mutex};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 
 /// The name the panel serves under (the VINTF fragment in apex/ declares it).
@@ -67,6 +67,27 @@ struct Subscriber {
 
 static SUBSCRIBER: Mutex<Option<Subscriber>> = Mutex::new(None);
 
+/// The process (pid, uid) the identity agent named the dashboard bundle, so the agent is asked
+/// once per process. Not the uid alone: uid 0 is shared by many processes, and one that passed
+/// (root may register any FQIN) would let every other root process in. Cleared when the bundle's
+/// sink dies: a pid is reused, and the next process with it must be asked again.
+static ALLOWED: Mutex<Option<(i32, u32)>> = Mutex::new(None);
+
+/// Where the link's actions go (set by spawn).
+static ACTIONS: OnceLock<Mutex<Sender<Actions<HomeAction>>>> = OnceLock::new();
+
+fn act(action: HomeAction) {
+    if let Some(actions) = ACTIONS.get() {
+        let _ = actions.lock().expect("actions").send(Actions::CustomAction(action));
+    }
+}
+
+/// The bundle's process is gone: the screen says so, and its (pid, uid) is no longer trusted.
+fn bundle_gone() {
+    *ALLOWED.lock().expect("allowed caller") = None;
+    act(HomeAction::HouseLink(false));
+}
+
 /// Sends a Wi-Fi command to the dashboard bundle; false: it did not go out (logged).
 pub fn send_wifi_command(command: WifiCommand) -> bool {
     send("Wi-Fi", &command, |sink, bytes| sink.onWifiCommand(bytes))
@@ -90,9 +111,12 @@ fn send<M: Message>(what: &str, command: &M, call: impl FnOnce(&Strong<dyn IComm
     match call(&current.sink, &bytes) {
         Ok(()) => true,
         // only a dead sink goes: a full async buffer fails a oneway call too
+        // the death notice may come later, or not at all for this sink once it is dropped here
         Err(err) if err.transaction_error() == StatusCode::DEAD_OBJECT => {
             log::warn!("screen link: the command sink is gone");
             *subscriber = None;
+            drop(subscriber);
+            bundle_gone();
             false
         }
         Err(err) => {
@@ -102,13 +126,7 @@ fn send<M: Message>(what: &str, command: &M, call: impl FnOnce(&Strong<dyn IComm
     }
 }
 
-struct ScreenLink {
-    actions: Arc<Mutex<Sender<Actions<HomeAction>>>>,
-    /// The process (pid, uid) the identity agent named the dashboard bundle, so the agent is
-    /// asked once per process. Not the uid alone: uid 0 is shared by many processes, and one that
-    /// passed (root may register any FQIN) would let every other root process in.
-    allowed: Mutex<Option<(i32, u32)>>,
-}
+struct ScreenLink;
 
 impl Interface for ScreenLink {}
 
@@ -117,7 +135,7 @@ impl ScreenLink {
     fn check_caller(&self) -> binder::Result<()> {
         let (pid, uid) = (ThreadState::get_calling_pid(), ThreadState::get_calling_uid());
         // not held across the agent's call: other callers must not queue behind it
-        if *self.allowed.lock().expect("allowed caller") == Some((pid, uid)) {
+        if *ALLOWED.lock().expect("allowed caller") == Some((pid, uid)) {
             return Ok(());
         }
         let refuse = |why: String| {
@@ -139,17 +157,13 @@ impl ScreenLink {
             return refuse(format!("{}.{}", fqin.sdvPackageName, fqin.serviceBundleName));
         }
         log::info!("screen link: the dashboard bundle is uid {uid} ({}/{})", fqin.serviceBundleName, fqin.serviceInstanceName);
-        *self.allowed.lock().expect("allowed caller") = Some((pid, uid));
+        *ALLOWED.lock().expect("allowed caller") = Some((pid, uid));
         Ok(())
     }
 
     fn act(&self, action: HomeAction) {
-        act(&self.actions, action);
+        act(action);
     }
-}
-
-fn act(actions: &Mutex<Sender<Actions<HomeAction>>>, action: HomeAction) {
-    let _ = actions.lock().expect("actions").send(Actions::CustomAction(action));
 }
 
 /// A message the bundle sent, or EX_ILLEGAL_ARGUMENT.
@@ -226,12 +240,11 @@ impl IScreenLink for ScreenLink {
         // On a binder thread when the bundle's process died. Only this sink's death counts: a
         // late one of a sink already replaced says nothing about the link.
         let watched = sink.as_binder();
-        let actions = self.actions.clone();
         let mut death = DeathRecipient::new(move || {
             let current = SUBSCRIBER.lock().expect("subscriber").as_ref().map(|s| s.sink.as_binder());
             if current.as_ref() == Some(&watched) {
                 log::warn!("screen link: the dashboard bundle is gone");
-                act(&actions, HomeAction::HouseLink(false));
+                bundle_gone();
             }
         });
         if sink.as_binder().link_to_death(&mut death).is_err() {
@@ -248,7 +261,8 @@ impl IScreenLink for ScreenLink {
 /// Registers the service and serves it on binder's thread pool; returns at once.
 pub fn spawn(actions: Sender<Actions<HomeAction>>) {
     thread::spawn(move || {
-        let service = ScreenLink { actions: Arc::new(Mutex::new(actions)), allowed: Mutex::new(None) };
+        let _ = ACTIONS.set(Mutex::new(actions));
+        let service = ScreenLink;
         let binder = BnScreenLink::new_binder(service, BinderFeatures::default());
         // the pool first, then the registration (as the Thread HAL's service does)
         binder::ProcessState::start_thread_pool();
