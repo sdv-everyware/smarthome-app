@@ -2,7 +2,7 @@
  * smarthome-app: state -> UI model, after every action.
  */
 
-use everyware_dashboard_grpc::weather::Weather;
+use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
 use everyware_ui::{list, scrollbar, slot, view, Component, Meter, Position, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};

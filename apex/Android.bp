@@ -1,6 +1,6 @@
 // com.everyware.smarthome: the panel's UI process as a vendor APEX, the way HAR packages
 // harry (packages/services/display_safety/service/product/harry_apex): the binary, the libraries
-// it links (libimpeller, libgbm, libdrm, gRPC ...), the design (etc/smarthome/smarthome.dcf)
+// it links (libimpeller, libgbm, libdrm ...), the design (etc/smarthome/smarthome.dcf)
 // and the init script that starts it when the APEXes are mounted. Docs:
 // vendor/sdv-everyware/everyware/docs/concepts/9-starting-the-app.md.
 

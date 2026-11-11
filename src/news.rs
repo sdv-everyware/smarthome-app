@@ -4,7 +4,7 @@
 //! the age at the end. The picture of a story is the image registered under "news/<id>" (the
 //! thumbnails' topic); until then the row keeps the design's placeholder.
 
-use everyware_dashboard_grpc::news::{NewsFeed, NewsStory, NewsThumbnail};
+use everyware_catalog::news::{NewsFeed, NewsStory, NewsThumbnail};
 use everyware_ui::images;
 use everyware_ui::list_item::{ListItem, ListItemKind, ListItemLines, ListItemSize};
 use everyware_ui::list_view::ListView;

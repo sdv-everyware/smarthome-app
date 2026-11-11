@@ -3,11 +3,10 @@
  */
 
 use crate::clock::Clock;
-use crate::screen_binder;
-use crate::house_link;
+use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
 use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, SETPOINT, STATUS_ENTER};
-use everyware_dashboard_grpc::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
+use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
 use harry::state::StateAction;
 use everyware_ui::part_of;
@@ -20,11 +19,10 @@ use everyware_ui::segmented::SegmentedEvent;
 use everyware_ui::slider::SliderEvent;
 use everyware_ui::toggle::ToggleEvent;
 use everyware_ui::Gesture;
-use everyware_dashboard_grpc::dashboard::{MatterCommandResult, WifiCommandResult};
-use everyware_dashboard_grpc::matter::MatterDevices;
-use everyware_dashboard_grpc::matter_service::{MatterCommand, MatterMoveToLevel, MatterSetFanMode, MatterSetOnOff, MatterSetSetpoint};
-use everyware_dashboard_grpc::news::{NewsFeed, NewsThumbnail};
-use everyware_dashboard_grpc::weather::Weather;
+use everyware_catalog::matter::MatterDevices;
+use everyware_catalog::matter_service::{MatterCommand, MatterMoveToLevel, MatterSetFanMode, MatterSetOnOff, MatterSetSetpoint};
+use everyware_catalog::news::{NewsFeed, NewsThumbnail};
+use everyware_catalog::weather::Weather;
 use std::time::Instant;
 
 /// WPA2/WPA3 passphrases are at least 8 characters.
@@ -36,23 +34,24 @@ pub enum HomeAction {
     Tick(Clock),
     /// A gesture on a node (ui_event_listener.rs, everyware_ui::Input).
     Gesture(String, Gesture),
-    /// The weather of the house, from the dashboard bundle (house_link.rs).
+    /// The weather of the house, from the dashboard bundle (screen_binder.rs).
     Weather(Weather),
-    /// The news feed, from the news bundle (house_link.rs).
+    /// The news feed, from the news bundle (screen_binder.rs).
     News(NewsFeed),
-    /// The thumbnail of a story of the feed (house_link.rs).
+    /// The thumbnail of a story of the feed (screen_binder.rs).
     NewsThumbnail(NewsThumbnail),
-    /// The dashboard bundle's heartbeats started or stopped (house_link.rs).
+    /// The dashboard bundle subscribed to the screen's commands, or its process died
+    /// (screen_binder.rs).
     HouseLink(bool),
-    /// The networks around, from the Wi-Fi bundle (house_link.rs).
+    /// The networks around, from the Wi-Fi bundle (screen_binder.rs).
     WifiNetworks(WifiNetworks),
-    /// The Wi-Fi connection, from the Wi-Fi bundle (house_link.rs).
+    /// The Wi-Fi connection, from the Wi-Fi bundle (screen_binder.rs).
     WifiState(WifiState),
-    /// The Wi-Fi bundle's answer to a command of the screen (house_link.rs).
+    /// The Wi-Fi bundle's answer to a command of the screen (screen_binder.rs).
     WifiResult(WifiCommandResult),
-    /// The Matter devices of the house, from the Matter bundle (house_link.rs).
+    /// The Matter devices of the house, from the Matter bundle (screen_binder.rs).
     MatterDevices(MatterDevices),
-    /// The Matter bundle's answer to a command of the screen (house_link.rs).
+    /// The Matter bundle's answer to a command of the screen (screen_binder.rs).
     MatterResult(MatterCommandResult),
     /// How the page in the panel's browser is doing (browser.rs events).
     Browser(crate::browser::BrowserEvent),
@@ -199,7 +198,7 @@ fn index_of(id: DeviceId) -> usize {
 /// The command for `control` to its device, if the tile has one in the fabric; the control
 /// keeps what the finger set until the device answered.
 fn send_control(pending: &mut [Option<Instant>; 4], devices: &Devices, control: Control) {
-    use everyware_dashboard_grpc::matter_service::matter_command::Command;
+    use everyware_catalog::matter_service::matter_command::Command;
     let index = index_of(control.device());
     let Some(b) = devices.bindings[index] else {
         log::info!("smarthome: {control:?}: no Matter device for this tile, the screen only");
@@ -236,7 +235,7 @@ fn send_control(pending: &mut [Option<Instant>; 4], devices: &Devices, control: 
     };
     let mut message = MatterCommand::new();
     message.command = Some(command);
-    if house_link::send_matter_command(message) {
+    if screen_binder::send_matter_command(message) {
         log::info!("smarthome: {control:?} to node {:#x} ep{}", b.node_id, b.endpoint);
         pending[index] = Some(Instant::now());
     }
@@ -269,12 +268,10 @@ fn follow_devices(d: &mut Dashboard, pending: &mut [Option<Instant>; 4], reporte
 
 /// A command's answer: its control follows the device again (with the next report).
 fn on_matter_result(pending: &mut [Option<Instant>; 4], devices: &Devices, result: &MatterCommandResult) {
-    let ok = result.result.as_ref().is_some_and(|r| r.ok);
-    if ok {
+    if result.result.ok {
         log::info!("smarthome: Matter {} node {:#x} ep{}: done", result.command, result.node_id, result.endpoint);
     } else {
-        let error = result.result.as_ref().map(|r| r.error.clone()).unwrap_or_default();
-        log::warn!("smarthome: Matter {} node {:#x} ep{}: {error}", result.command, result.node_id, result.endpoint);
+        log::warn!("smarthome: Matter {} node {:#x} ep{}: {}", result.command, result.node_id, result.endpoint, result.result.error);
     }
     for (i, b) in devices.bindings.iter().enumerate() {
         if b.is_some_and(|b| b.node_id == result.node_id && b.endpoint == result.endpoint) {

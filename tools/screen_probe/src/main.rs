@@ -1,37 +1,38 @@
-//! screen_probe: calls the panel's house link as a stranger and prints what the panel answers.
+//! screen_probe: calls the panel's screen link as a stranger and prints what the panel answers.
 //!
 //!   screen_probe whois <pid> <uid>                  the SDV identity of a process
-//!   screen_probe binder                             IScreenLink.subscribeWifiCommands, no identity
+//!   screen_probe binder                             every IScreenLink call, no identity
 //!   screen_probe binder-as <vm> <package> <bundle>  the same after registering that FQIN (root)
-//!   screen_probe grpc                               the four Wi-Fi calls on 127.0.0.1:7100
 //!
-//! subscribeWifiCommands is the call: EX_SECURITY means the caller check refused, EX_ILLEGAL_STATE
-//! that it let the caller in (the real sink is subscribed), and nothing on the screen changes.
-//! ACCEPTED happens only when no live sink was there: the probe's sink then dies with the probe,
-//! and the screen's Wi-Fi commands go nowhere until the panel or the dashboard bundle restarts.
+//! Every call carries a message that does not parse, so a call the caller check lets through
+//! fails with EX_ILLEGAL_ARGUMENT and changes nothing on the screen; EX_SECURITY means the check
+//! refused it. subscribeCommands is the last call: EX_ILLEGAL_STATE means the check let the caller
+//! in (the real sink is subscribed). ACCEPTED happens only when no live sink was there: the
+//! probe's sink then dies with the probe, and the screen shows that the house's data is gone
+//! until the dashboard bundle subscribes again.
 
 use binder::{BinderFeatures, Interface, Strong};
+use com_everyware_screen::aidl::com::everyware::screen::ICommandSink::{BnCommandSink, ICommandSink};
 use com_everyware_screen::aidl::com::everyware::screen::IScreenLink::IScreenLink;
-use com_everyware_screen::aidl::com::everyware::screen::IWifiCommandSink::{BnWifiCommandSink, IWifiCommandSink};
-use everyware_dashboard_grpc::dashboard::{Subscribe, WifiCommandResult};
-use everyware_dashboard_grpc::dashboard_grpc::DashboardServiceClient;
-use everyware_dashboard_grpc::wifi::{WifiNetworks, WifiState};
-use futures::StreamExt;
 use google_sdv_identity::aidl::google::sdv::identity::IIdentityAgent::IIdentityAgent;
 use google_sdv_identity::aidl::google::sdv::identity::ProcessIdentifier::ProcessIdentifier;
 use google_sdv_identity::aidl::google::sdv::identity::ServiceFqin::ServiceFqin;
 use google_sdv_identity::aidl::google::sdv::identity::ServiceIdentity::EcPublicKey::EcPublicKey;
-use grpcio::{ChannelBuilder, EnvBuilder};
-use std::sync::Arc;
 
 const SCREEN: &str = "com.everyware.screen.IScreenLink/default";
 const AGENT: &str = "google.sdv.identity.IIdentityAgent/default";
+/// No protobuf message parses from this: a field tag of 0.
+const GARBAGE: &[u8] = &[0x00, 0xff, 0xff];
 
 struct Sink;
 impl Interface for Sink {}
-impl IWifiCommandSink for Sink {
-    fn onCommand(&self, _command: &[u8]) -> binder::Result<()> {
-        println!("a command reached the probe's sink");
+impl ICommandSink for Sink {
+    fn onWifiCommand(&self, _command: &[u8]) -> binder::Result<()> {
+        println!("a Wi-Fi command reached the probe's sink");
+        Ok(())
+    }
+    fn onMatterCommand(&self, _command: &[u8]) -> binder::Result<()> {
+        println!("a Matter command reached the probe's sink");
         Ok(())
     }
 }
@@ -40,13 +41,25 @@ fn agent() -> Strong<dyn IIdentityAgent> {
     binder::check_interface::<dyn IIdentityAgent>(AGENT).expect("identity agent")
 }
 
-fn subscribe() {
-    let house = binder::check_interface::<dyn IScreenLink>(SCREEN).expect("house link");
-    let sink = BnWifiCommandSink::new_binder(Sink, BinderFeatures::default());
-    match house.subscribeWifiCommands(&sink) {
-        Ok(()) => println!("subscribeWifiCommands: ACCEPTED (the probe now takes the commands)"),
-        Err(status) => println!("subscribeWifiCommands: {:?} {}", status.exception_code(), status),
+fn show(call: &str, result: binder::Result<()>) {
+    match result {
+        Ok(()) => println!("{call}: ACCEPTED"),
+        Err(status) => println!("{call}: {:?} {}", status.exception_code(), status),
     }
+}
+
+fn calls() {
+    let screen = binder::check_interface::<dyn IScreenLink>(SCREEN).expect("screen link");
+    show("publishWeather", screen.publishWeather(GARBAGE));
+    show("publishNews", screen.publishNews(GARBAGE));
+    show("publishNewsThumbnail", screen.publishNewsThumbnail(GARBAGE));
+    show("publishWifiNetworks", screen.publishWifiNetworks(GARBAGE));
+    show("publishWifiState", screen.publishWifiState(GARBAGE));
+    show("publishWifiResult", screen.publishWifiResult("connect", "probe", GARBAGE));
+    show("publishMatterDevices", screen.publishMatterDevices(GARBAGE));
+    show("publishMatterResult", screen.publishMatterResult("on-off", 1, 1, GARBAGE));
+    let sink = BnCommandSink::new_binder(Sink, BinderFeatures::default());
+    show("subscribeCommands", screen.subscribeCommands(&sink));
 }
 
 fn main() {
@@ -56,7 +69,7 @@ fn main() {
             let process = ProcessIdentifier { pid: args[1].parse().unwrap(), uid: args[2].parse().unwrap() };
             println!("{:?}", agent().findIdentityByProcess(&process));
         }
-        Some("binder") => subscribe(),
+        Some("binder") => calls(),
         Some("binder-as") => {
             let fqin = ServiceFqin {
                 sdvVmName: args[1].clone(),
@@ -72,19 +85,8 @@ fn main() {
                     return;
                 }
             }
-            subscribe();
+            calls();
         }
-        Some("grpc") => {
-            let channel = ChannelBuilder::new(Arc::new(EnvBuilder::new().build())).connect("127.0.0.1:7100");
-            let client = DashboardServiceClient::new(channel);
-            println!("PublishWifiNetworks: {:?}", client.publish_wifi_networks(&WifiNetworks::new()).map(|_| "ok"));
-            println!("PublishWifiState: {:?}", client.publish_wifi_state(&WifiState::new()).map(|_| "ok"));
-            println!("PublishWifiResult: {:?}", client.publish_wifi_result(&WifiCommandResult::new()).map(|_| "ok"));
-            match client.wifi_commands(&Subscribe::new()) {
-                Ok(mut stream) => println!("WifiCommands: {:?}", futures::executor::block_on(stream.next()).map(|r| r.map(|_| "a command"))),
-                Err(err) => println!("WifiCommands: {err}"),
-            }
-        }
-        _ => eprintln!("usage: screen_probe whois <pid> <uid> | binder | binder-as <vm> <package> <bundle> | grpc"),
+        _ => eprintln!("usage: screen_probe whois <pid> <uid> | binder | binder-as <vm> <package> <bundle>"),
     }
 }

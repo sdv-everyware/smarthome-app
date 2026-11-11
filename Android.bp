@@ -34,13 +34,10 @@ rust_binary {
         "liblog_rust",
         // UI components: vendor/sdv-everyware/ui-lib
         "libeveryware_ui",
-        // the house's data from the dashboard bundle over gRPC (house_link.rs)
-        "libgrpcio",
-        "libfutures",
+        // the house's data from the dashboard bundle over binder (screen_binder.rs): the
+        // catalog's messages, the interface, and the SDV identity agent that names the caller
         "libprotobuf",
-        "libeveryware_dashboard_grpc",
-        // Wi-Fi from the dashboard bundle over binder (screen_binder.rs): the interface, and the
-        // SDV identity agent that names the caller
+        "libeveryware_catalog",
         "libbinder_rs",
         "com.everyware.screen-V1-rust",
         "google.sdv.identity-V2-rust",

@@ -50,7 +50,7 @@ pub struct Page {
 impl Page {
     /// A news story's page: its article, or its discussion on Hacker News when it has no link
     /// (Ask HN).
-    pub fn of(story: &everyware_dashboard_grpc::news::NewsStory) -> Page {
+    pub fn of(story: &everyware_catalog::news::NewsStory) -> Page {
         let url = if story.url.is_empty() {
             format!("https://news.ycombinator.com/item?id={}", story.id)
         } else {
@@ -80,7 +80,7 @@ fn fifo_path() -> String {
 }
 
 /// Asks the browser to open `url`. Never blocks: without a relay (no browser started) the
-/// page is dropped with a warning. Called from the reducer, as house_link's sends.
+/// page is dropped with a warning. Called from the reducer, as screen_binder's sends.
 pub fn open(url: &str) {
     if url != BLANK && !is_web(url) {
         log::warn!("smarthome: browser: not a web address ({} bytes), not sent", url.len());
