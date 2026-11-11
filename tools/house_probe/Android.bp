@@ -1,0 +1,30 @@
+// house_probe: a test tool for the house link, not in the image. It calls the panel the way a
+// stranger would: over binder with no SDV identity or with one it registers (root may register
+// any FQIN with the identity agent), and on the gRPC port with the Wi-Fi calls. Run as root from
+// /data/local/tmp; the commands are in src/main.rs.
+
+package {
+    default_applicable_licenses: ["Android-Apache-2.0"],
+}
+
+rust_binary {
+    name: "house_probe",
+    crate_name: "house_probe",
+    srcs: ["src/main.rs"],
+    // one file to push: the Rust crates linked in
+    prefer_rlib: true,
+    rustlibs: [
+        "libbinder_rs",
+        "com.everyware.house-V1-rust",
+        "google.sdv.identity-V2-rust",
+        "libgrpcio",
+        "libfutures",
+        "libprotobuf",
+        "libeveryware_dashboard_grpc",
+    ],
+    arch: {
+        riscv64: {
+            enabled: false,
+        },
+    },
+}

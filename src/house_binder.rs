@@ -60,9 +60,10 @@ pub fn send_wifi_command(command: WifiCommand) {
 
 struct HouseLink {
     actions: Mutex<Sender<Actions<HomeAction>>>,
-    /// The uid of a caller the identity agent named the dashboard bundle: a bundle keeps its uid
-    /// (the owner of its data directory), so the agent is asked once.
-    allowed_uid: Mutex<Option<u32>>,
+    /// The process (pid, uid) the identity agent named the dashboard bundle, so the agent is
+    /// asked once per process. Not the uid alone: uid 0 is shared by many processes, and one that
+    /// passed (root may register any FQIN) would let every other root process in.
+    allowed: Mutex<Option<(i32, u32)>>,
 }
 
 impl Interface for HouseLink {}
@@ -72,7 +73,7 @@ impl HouseLink {
     fn check_caller(&self) -> binder::Result<()> {
         let (pid, uid) = (ThreadState::get_calling_pid(), ThreadState::get_calling_uid());
         // not held across the agent's call: other callers must not queue behind it
-        if *self.allowed_uid.lock().expect("allowed uid") == Some(uid) {
+        if *self.allowed.lock().expect("allowed caller") == Some((pid, uid)) {
             return Ok(());
         }
         let refuse = |why: String| {
@@ -94,7 +95,7 @@ impl HouseLink {
             return refuse(format!("{}.{}", fqin.sdvPackageName, fqin.serviceBundleName));
         }
         log::info!("house binder: the dashboard bundle is uid {uid} ({}/{})", fqin.serviceBundleName, fqin.serviceInstanceName);
-        *self.allowed_uid.lock().expect("allowed uid") = Some(uid);
+        *self.allowed.lock().expect("allowed caller") = Some((pid, uid));
         Ok(())
     }
 
@@ -154,7 +155,7 @@ impl IHouseLink for HouseLink {
 /// Registers the service and serves it on binder's thread pool; returns at once.
 pub fn spawn(actions: Sender<Actions<HomeAction>>) {
     thread::spawn(move || {
-        let service = HouseLink { actions: Mutex::new(actions), allowed_uid: Mutex::new(None) };
+        let service = HouseLink { actions: Mutex::new(actions), allowed: Mutex::new(None) };
         let binder = BnHouseLink::new_binder(service, BinderFeatures::default());
         // the pool first, then the registration (as the Thread HAL's service does)
         binder::ProcessState::start_thread_pool();
