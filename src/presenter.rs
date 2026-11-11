@@ -4,7 +4,7 @@
 
 use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
-use everyware_ui::{list, scrollbar, slot, view, Component, Meter, Position, TapTarget, Variant};
+use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
 use crate::state::{State, SCREEN};
 use everyware_ui::transitions::{self, Change, ComponentKind};
@@ -108,9 +108,8 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.panel_skeleton_3 = slot("#panel/skeleton-3", &browser.skeletons[2]);
         model.panel_skeleton_4 = slot("#panel/skeleton-4", &browser.skeletons[3]);
 
-        // the screen's keyboard: its dock and the keys in the dock's slot (the slot moves with it)
-        (model.osk, model.osk_animation) = view(&state.osk);
-        model.osk_keys_animation = model.osk_animation.clone();
+        // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
+        model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());
         model.osk_keys = slot("#osk/keys", &state.osk.keyboard);
     }
 }

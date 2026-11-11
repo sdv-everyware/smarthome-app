@@ -139,7 +139,9 @@ module.exports = function patch(msg, helpers) {
   const sheetSet = { set: contentSet.set };
   // The keyboard dock: the screen's one keyboard (as a system keyboard, not a part of each
   // sheet), closed below the screen or open at the bottom; the library's #keyboard sits in
-  // its slot #osk/keys. The app opens it while a field has the focus (ui-lib KeyboardDock).
+  // its slot #osk/keys. The app opens it while a field has the focus (ui-lib KeyboardDock):
+  // the instance on the screen stays closed and the app moves #osk/keys (a position override,
+  // as a sheet's card); the open variant is the designer's view and the prototype's.
   const dockY = SHEET_Y + sheetSet.set.size.y + 80;
   const dockSet = A.componentSet(lib, '#keyboard-dock', 80, dockY, [['state', ['closed', 'open']]], SCREEN_W, SCREEN_H, 0, 48, (s, v) => {
     const open = v.state === 'open';

@@ -259,11 +259,11 @@ ui_model! {
     panel_skeleton_3: Slot = "#panel/skeleton-3" ["SlotCustomizer"];
     panel_skeleton_4: Slot = "#panel/skeleton-4" ["SlotCustomizer"];
 
-    // The screen's keyboard: an instance of #keyboard-dock (state), the library's keyboard in
-    // its slot (labels, pressed keys, taps); the slot moves with the dock.
-    osk: Variant = "#osk";
-    osk_animation: AnimationOverride = "#osk";
-    osk_keys_animation: AnimationOverride = "#osk/keys";
+    // The screen's keyboard: an instance of #keyboard-dock, the library's keyboard in its slot
+    // (labels, pressed keys, taps). The app never sets the dock's variant (a variant switch
+    // rebuilds the tree on every frame of the animation): the instance stays closed and the
+    // slot moves, as a sheet's card does (ui-lib dock.rs keys_position).
+    osk_keys_position: Position = "#osk/keys" ["FollowPositionCustomizer"] = Position::new(everyware_ui::dock::KeyboardDock::new().keys_position(crate::state::SCREEN), None);
     osk_keys: Slot = "#osk/keys" ["SlotCustomizer"];
 }
 
