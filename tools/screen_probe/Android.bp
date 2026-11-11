@@ -1,6 +1,7 @@
 // screen_probe: a test tool for the screen link, not in the image. It calls the panel the way a
 // stranger would: over binder with no SDV identity or with one it registers (root may register
-// any FQIN with the identity agent). Run from /data/local/tmp; the commands are in src/main.rs.
+// any FQIN with the identity agent). Run from /data/local/tmp, `binder-as` as root; the commands
+// are in src/main.rs.
 
 package {
     default_applicable_licenses: ["Android-Apache-2.0"],
