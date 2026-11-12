@@ -14,7 +14,7 @@ use har_ui_model_derive::HarUiModel;
 use har_ui_model_derive::NoDesignTokensOrVariables;
 use customizations::render_customizations::List;
 use customizations::AnimationOverride;
-use everyware_ui::{FollowOpacityCustomizer, FollowPositionCustomizer, Meter, Position, Slot, SlotCustomizer, TapTarget, TapTargetCustomizer, Variant};
+use everyware_ui::{FollowOpacityCustomizer, FollowPositionCustomizer, Meter, Position, ScreenCustomizer, ScreenView, Slot, SlotCustomizer, TapTarget, TapTargetCustomizer, Variant};
 use customizations::render_customizations::RenderCustomization;
 use customizations::{CustomizerOutput, ExternalImageContent};
 use std::collections::HashMap;
@@ -180,6 +180,16 @@ ui_model! {
     _office_header: () = "#office/header" interactive;
     door_details: Slot = "#door/details" ["SlotCustomizer"];
     settings: Slot = "#settings" ["SlotCustomizer"];
+    // The header's tabs and the screens behind them (design/screens-patch.js; ui-lib tabs.rs,
+    // screens.rs). Rooms and Automations are instances of sets with state=hidden/shown: shown
+    // once, then the screens' effect fades (or moves) each screen; at opacity 0 a screen is not
+    // drawn and takes no taps.
+    home_tabs: Slot = "#home/tabs" ["SlotCustomizer"];
+    overview: ScreenView = "#overview" ["ScreenCustomizer"] = ScreenView { opacity: Meter::new(100.0, None), x: None };
+    rooms: ScreenView = "#rooms" ["ScreenCustomizer"] = ScreenView::default();
+    rooms_variant: Variant = "#rooms" = Variant("state=shown".to_string());
+    automations: ScreenView = "#automations" ["ScreenCustomizer"] = ScreenView::default();
+    automations_variant: Variant = "#automations" = Variant("state=shown".to_string());
     // --wayland-zones: the tile's picture shows another harry process (a zone). A frame, not a
     // rectangle (dashboard-patch.js): harry draws an external image only on a plain frame. The
     // scrim and the caption with #camera/open are drawn after it, on top of the client's frames.

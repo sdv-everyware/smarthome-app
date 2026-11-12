@@ -146,6 +146,9 @@ impl StateAction<State, ()> for HomeAction {
                     state.panel.open();
                 }
             }
+            HomeAction::Gesture(node, gesture) if part_of("#home/tabs", node).is_some() => {
+                on_tabs(state, node, *gesture);
+            }
             HomeAction::Gesture(node, gesture) => {
                 if let Some(control) = on_dashboard(&mut state.dash, node, *gesture) {
                     send_control(&mut state.matter_pending, &state.devices, control);
@@ -158,6 +161,15 @@ impl StateAction<State, ()> for HomeAction {
         if state.device.container.is_open() {
             state.device.refresh(&state.devices, &state.dash);
         }
+    }
+}
+
+/// The header's tabs: `#home/tabs/#tabs/tab-<i>`, 1-based; the screens follow the choice
+/// (presenter.rs).
+fn on_tabs(state: &mut State, node: &str, gesture: Gesture) {
+    let tab = part_of("#home/tabs", node).and_then(|p| p.strip_prefix("#tabs/tab-")).and_then(|n| n.parse::<usize>().ok());
+    if let Some(i) = tab.and_then(|n| n.checked_sub(1)) {
+        state.tabs.on(i, gesture);
     }
 }
 

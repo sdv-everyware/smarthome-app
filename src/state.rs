@@ -14,7 +14,9 @@ use everyware_ui::sheet::{Edge, Layout, Sheet};
 use everyware_ui::pressable::Pressable;
 use everyware_ui::segmented::Segmented;
 use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
+use everyware_ui::screens::Effect;
 use everyware_ui::slider::Slider;
+use everyware_ui::tabs::Tabs;
 use everyware_ui::toggle::Toggle;
 use crate::devices::{DeviceId, DeviceView, Devices};
 use everyware_catalog::weather::Weather;
@@ -50,15 +52,22 @@ pub struct State {
     /// A Matter command in flight per tile (DeviceId::ALL's order): its control keeps what the
     /// finger set until the device answered (actions.rs follow_devices).
     pub matter_pending: [Option<std::time::Instant>; 4],
+    /// The header's tabs (#home/tabs): which screen the panel shows (SCREENS).
+    pub tabs: Tabs,
 }
 
 impl State {
     /// The state at the start: everything default, the panel with the app's layout, the
     /// design's sizes.
     pub fn new(sizes: Sizes) -> Self {
-        State { panel: Sheet::new(PANEL_LAYOUT), sizes, ..Default::default() }
+        State { panel: Sheet::new(PANEL_LAYOUT), sizes, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() }
     }
 }
+
+/// The screens behind the header's tabs, in the tabs' order: the label and the screen's node.
+pub const SCREENS: [(&str, &str); 3] = [("Overview", "#overview"), ("Rooms", "#rooms"), ("Automations", "#automations")];
+/// How the screens change on a tap on a tab (ui-lib screens.rs).
+pub const SCREEN_EFFECT: Effect = Effect::Fade;
 
 /// The screen, for the sheets' geometry (ui-lib sheet.rs).
 pub const SCREEN: (f32, f32) = (1920.0, 1080.0);

@@ -4,9 +4,9 @@
 
 use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
-use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, TapTarget, Variant};
+use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
-use crate::state::{State, SCREEN};
+use crate::state::{State, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::transitions::{self, Change, ComponentKind};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
 use crate::ui_model::UiModel;
@@ -42,6 +42,16 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.door_details = slot("#door/details", &d.door_details);
         model.settings = slot("#settings", &d.settings);
         model.talk = slot("#intercom/talk", &d.talk);
+
+        // the header's tabs and the screen of the chosen tab, with the screens' effect
+        model.home_tabs = slot("#home/tabs", &state.tabs);
+        let screen = |i: usize| {
+            let x = state.sizes.frame(SCREENS[i].1).map_or(0.0, |f| f.x);
+            ScreenView::new(state.tabs.screen(i, SCREEN_EFFECT, SCREEN.0), x)
+        };
+        model.overview = screen(0);
+        model.rooms = screen(1);
+        model.automations = screen(2);
 
         present_weather(model, state.weather.as_ref(), state.house_link);
 
