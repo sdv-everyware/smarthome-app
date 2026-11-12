@@ -21,7 +21,6 @@ const path = require('path');
 const key = g => `${g.sessionID}:${g.localID}`;
 const ROOT = '#smarthome-root';
 const SCREEN_W = 1920, SCREEN_H = 1080;
-const KBD_W = 1920, KBD_H = 420;
 
 // The dashboard's palette (Smart HOme.fig).
 const C = {
@@ -137,18 +136,8 @@ module.exports = function patch(msg, helpers) {
     }
   });
   const sheetSet = { set: contentSet.set };
-  // The keyboard dock: the screen's one keyboard (as a system keyboard, not a part of each
-  // sheet), closed below the screen or open at the bottom; the library's #keyboard sits in
-  // its slot #osk/keys. The app opens it while a field has the focus (ui-lib KeyboardDock):
-  // the instance on the screen stays closed and the app moves #osk/keys (a position override,
-  // as a sheet's card); the open variant is the designer's view and the prototype's.
-  const dockY = SHEET_Y + sheetSet.set.size.y + 80;
-  const dockSet = A.componentSet(lib, '#keyboard-dock', 80, dockY, [['state', ['closed', 'open']]], SCREEN_W, SCREEN_H, 0, 48, (s, v) => {
-    const open = v.state === 'open';
-    slotted(s, '#osk/keys', 0, open ? SCREEN_H - KBD_H : SCREEN_H + 40, variantOf('#keyboard', 'state=default'));
-  }, { rows: true });
-  // the Library grows for the two sets
-  lib.size = { x: lib.size.x, y: dockY + dockSet.set.size.y + 80 };
+  // the Library grows for the app's set
+  lib.size = { x: lib.size.x, y: SHEET_Y + sheetSet.set.size.y + 80 };
   // The sheet and the dock on the dashboard: the closed variants, over everything, the dock
   // above the sheet. #smarthome-root is a vertical auto layout frame; Figma's import keeps
   // "absolute position" on a frame but drops it on an instance (v22: the instance landed in
@@ -157,8 +146,9 @@ module.exports = function patch(msg, helpers) {
   const layer = frame(root, 'Wi-Fi sheet layer', 0, 0, SCREEN_W, SCREEN_H, { stackPositioning: 'ABSOLUTE' });
   A.sheetInstance(layer, '#wifi', 0, 0, variantOf('#sheet', 'layout=dialog, state=closed'), contentSet.symbols['step=networks']);
   const dockLayer = frame(root, 'Keyboard layer', 0, 0, SCREEN_W, SCREEN_H, { stackPositioning: 'ABSOLUTE' });
-  A.instance(dockLayer, '#osk', 0, 0, dockSet.symbols['state=closed']);
+  // the keyboard dock is the library's (#keyboard-dock): the closed variant, moved by the app
+  A.instance(dockLayer, '#osk', 0, 0, variantOf('#keyboard-dock', 'state=closed'));
 
-  log(`added ${A.count()} nodes: #wifi-content (step) and #keyboard-dock (state) in the Library, #wifi (#sheet dialog, content swapped) and #osk over ${ROOT}`);
+  log(`added ${A.count()} nodes: #wifi-content (step) in the Library, #wifi (#sheet dialog, content swapped) and #osk over ${ROOT}`);
   return msg;
 };
