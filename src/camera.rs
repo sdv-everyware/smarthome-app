@@ -51,7 +51,8 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
     thread::spawn(move || {
         let mut waiting_said = false;
         loop {
-            // a new manager each round: it lists the devices that are there now
+            // a new manager after every stream or failure: its list is the devices of now
+            // (a manager keeps the list it found; an empty list is looked up again, quietly)
             let client = create_resource_manager_client(looper.clone());
             let mut manager = match CameraManager::new(client) {
                 Ok(m) => m,
@@ -61,13 +62,15 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
                     continue;
                 }
             };
-            let Some(id) = first_camera(manager.get_camera_list().into_iter().map(|c| c.id).collect()) else {
+            let id = loop {
+                if let Some(id) = first_camera(manager.get_camera_list().into_iter().map(|c| c.id).collect()) {
+                    break id;
+                }
                 if !waiting_said {
                     log::info!("smarthome: camera: no capture device yet, the tile keeps its design");
                     waiting_said = true;
                 }
                 thread::sleep(CAMERA_POLL);
-                continue;
             };
             waiting_said = false;
             let device = match manager.open(&id, token) {
