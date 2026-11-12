@@ -4,7 +4,8 @@
 //! this listener puts each frame into the tile's picture (`IMAGE_KEY` in everyware_ui::images,
 //! the renderer's raw image storage). New pixels for the same picture redraw the last display
 //! list in the looper, so a frame costs no pre-render; only a new frame size is an action.
-//! Without a camera the tile keeps its design (and the Wayland zone, when there is one).
+//! Without a camera the tile keeps its design (and the Wayland zone, when there is one); a
+//! camera that comes later is found within CAMERA_POLL.
 
 use crate::actions::HomeAction;
 use customizations::ImageContentData;
@@ -27,6 +28,8 @@ pub const IMAGE_KEY: &str = "camera";
 const MAX_FRAME: (usize, usize) = (1920, 1080);
 /// What the platform is asked for (har-platform-android sets 640x360 itself).
 const STREAM: (usize, usize) = (640, 360);
+/// How often the panel looks for a camera while there is none.
+const CAMERA_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// The tile's picture before the first frame: one transparent pixel, so the design shows.
 pub fn placeholder() -> ImageContentData {
@@ -86,8 +89,18 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
             Ok(m) => m,
             Err(e) => return log::warn!("smarthome: camera: no camera manager: {e:?}"),
         };
-        let Some(camera) = manager.get_camera_list().into_iter().next() else {
-            return log::info!("smarthome: camera: no capture device, the tile keeps its design");
+        // a USB camera can come after the panel (at boot, or plugged in later): look again every
+        // CAMERA_POLL until one is there; the tile keeps its design meanwhile
+        let mut said = false;
+        let camera = loop {
+            if let Some(camera) = manager.get_camera_list().into_iter().next() {
+                break camera;
+            }
+            if !said {
+                log::info!("smarthome: camera: no capture device yet, the tile keeps its design");
+                said = true;
+            }
+            thread::sleep(CAMERA_POLL);
         };
         let device = match manager.open(&camera.id, token) {
             Ok(d) => d,
