@@ -1,6 +1,7 @@
 // camera_probe: a test tool, not in the image. It lists the capture devices the way harry's
 // platform finds them (/dev/video*, capture and streaming) with their formats and frame sizes.
-// Run from /data/local/tmp as root.
+// Run from /data/local/tmp as root. Not in the image: no product lists it, and installable: false
+// keeps it out of every install list too.
 
 package {
     default_applicable_licenses: ["Android-Apache-2.0"],
@@ -11,6 +12,7 @@ rust_binary {
     crate_name: "camera_probe",
     srcs: ["src/main.rs"],
     prefer_rlib: true,
+    installable: false,
     rustlibs: [
         "libv4l2r",
         "libglob",

@@ -76,3 +76,18 @@ filegroup {
         ":__subpackages__",
     ],
 }
+
+// The camera tile's stream listener on the host (src/camera_listener.rs): one action per new
+// frame size, every frame given back, the end of a stream reported, the device chosen.
+rust_test_host {
+    name: "smarthome_camera_listener_test",
+    crate_name: "smarthome_camera_listener",
+    crate_root: "src/camera_listener.rs",
+    srcs: ["src/camera_listener.rs"],
+    rustlibs: [
+        "libhar_platform_api",
+        "libhar_types",
+        "liblog_rust",
+    ],
+    test_suites: ["general-tests"],
+}

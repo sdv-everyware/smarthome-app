@@ -33,7 +33,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.climate_target = format!("Target · {}° indoors", d.setpoint);
         model.humidity_adjust = slot("#climate/humidity-adjust", &d.humidity_adjust);
         model.camera_open = slot("#camera/open", &d.open_feed);
-        model.camera_image = crate::camera::picture(state.camera);
+        model.camera_image = crate::camera::picture(&model.camera_image, state.camera);
         model.entryway_light = slot("#entryway/light", &d.light);
         model.entryway_state = if d.light.value { "On" } else { "Off" }.to_string();
         model.bedroom_dimmer = slot("#bedroom/dimmer", &d.dimmer);

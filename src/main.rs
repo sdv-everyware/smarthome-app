@@ -32,6 +32,7 @@ use std::time::Duration;
 
 mod actions;
 mod camera;
+mod camera_listener;
 mod browser;
 mod clock;
 mod config;
