@@ -1,5 +1,5 @@
 // prototype-patch.js: the sheets for the designer, as DesignCompose does it in Figma. Run last
-// (build.sh): it uses #sheet (components-patch.js), #wifi-content and #keyboard-dock
+// (build.sh): it uses #sheet and #keyboard-dock (components-patch.js), #wifi-content
 // (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js) and the
 // dashboard's names (dashboard-patch.js).
 //
