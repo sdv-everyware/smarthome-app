@@ -2,7 +2,10 @@
 //! bounds the frame size and puts each frame into the tile's picture itself (har-platform-android
 //! camera: check_capture_format, resource_manager_client.update), so this listener only turns
 //! a new frame size into one action, gives every frame back to the device, and reports the end
-//! of the stream (a camera unplugged) so that the panel looks for a camera again.
+//! of the stream (a camera unplugged): the tile goes back to its design (an action with no size)
+//! and the panel looks for a camera again. At the end of the stream the listener lets go of the
+//! device: the device holds the listener (its callback), so a listener that kept the device
+//! would keep the device, its fd and its buffers alive after the stream.
 
 use har_platform_api::camera::{CameraStreamEvent, ICameraDevice, ICameraStreamListener};
 use har_platform_api::error::Error;
@@ -11,23 +14,24 @@ use std::sync::{Arc, Mutex};
 
 /// Listens to one camera stream for the panel.
 pub struct Listener<A> {
-    device: Arc<Mutex<dyn ICameraDevice + Send>>,
+    /// None after the stream ended.
+    device: Option<Arc<Mutex<dyn ICameraDevice + Send>>>,
     actions: Sender<A>,
-    to_action: fn(u32, u32) -> A,
+    to_action: fn(Option<(u32, u32)>) -> A,
     stopped: Sender<()>,
     size: Option<(usize, usize)>,
 }
 
 impl<A> Listener<A> {
-    /// `to_action` makes the action of a new frame size; `stopped` gets one message when the
-    /// stream ends.
+    /// `to_action` makes the action of a new frame size, and of no size when the stream ends;
+    /// `stopped` gets one message when the stream ends.
     pub fn new(
         device: Arc<Mutex<dyn ICameraDevice + Send>>,
         actions: Sender<A>,
-        to_action: fn(u32, u32) -> A,
+        to_action: fn(Option<(u32, u32)>) -> A,
         stopped: Sender<()>,
     ) -> Self {
-        Listener { device, actions, to_action, stopped, size: None }
+        Listener { device: Some(device), actions, to_action, stopped, size: None }
     }
 }
 
@@ -39,14 +43,18 @@ impl<A: Send> ICameraStreamListener for Listener<A> {
                 if self.size != Some(size) {
                     self.size = Some(size);
                     log::info!("smarthome: camera: {}x{} frames in the tile", size.0, size.1);
-                    let _ = self.actions.send((self.to_action)(size.0 as u32, size.1 as u32));
+                    let _ = self.actions.send((self.to_action)(Some((size.0 as u32, size.1 as u32))));
                 }
-                if let Ok(mut device) = self.device.lock() {
+                if let Some(Ok(mut device)) = self.device.as_ref().map(|d| d.lock()) {
                     device.done_with_frame(desc);
                 }
             }
             CameraStreamEvent::StreamStopped(_) => {
                 log::info!("smarthome: camera: the stream stopped");
+                self.device = None;
+                if self.size.take().is_some() {
+                    let _ = self.actions.send((self.to_action)(None));
+                }
                 let _ = self.stopped.send(());
             }
             CameraStreamEvent::StreamStarted(_) | CameraStreamEvent::StreamHang(_) => {}
@@ -133,32 +141,53 @@ mod tests {
         })
     }
 
-    fn listener() -> (Listener<(u32, u32)>, mpsc::Receiver<(u32, u32)>, mpsc::Receiver<()>, Arc<Mutex<usize>>) {
+    type Device = Arc<Mutex<dyn ICameraDevice + Send>>;
+
+    fn listener() -> (Listener<Option<(u32, u32)>>, mpsc::Receiver<Option<(u32, u32)>>, mpsc::Receiver<()>, Arc<Mutex<usize>>, Device) {
         let given_back = Arc::new(Mutex::new(0));
         let (tx, rx) = mpsc::channel();
         let (stop_tx, stop_rx) = mpsc::channel();
-        let device: Arc<Mutex<dyn ICameraDevice + Send>> = Arc::new(Mutex::new(Mock(given_back.clone())));
-        (Listener::new(device, tx, |w, h| (w, h), stop_tx), rx, stop_rx, given_back)
+        let device: Device = Arc::new(Mutex::new(Mock(given_back.clone())));
+        (Listener::new(device.clone(), tx, |size| size, stop_tx), rx, stop_rx, given_back, device)
     }
 
     #[test]
     fn one_action_per_new_size_and_every_frame_given_back() {
-        let (mut l, rx, _stop, given_back) = listener();
+        let (mut l, rx, _stop, given_back, _) = listener();
         for _ in 0..3 {
             l.on_event(frame(640, 360)).unwrap();
         }
         l.on_event(frame(320, 240)).unwrap();
         l.on_event(frame(320, 240)).unwrap();
-        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![(640, 360), (320, 240)]);
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![Some((640, 360)), Some((320, 240))]);
         assert_eq!(*given_back.lock().unwrap(), 5);
     }
 
     #[test]
     fn the_end_of_the_stream_is_reported_once_and_no_frame_action() {
-        let (mut l, rx, stop, _) = listener();
+        let (mut l, rx, stop, _, _) = listener();
         l.on_event(CameraStreamEvent::StreamStopped(CameraStreamEventDesc { data: None })).unwrap();
         assert_eq!(stop.try_iter().count(), 1);
         assert_eq!(rx.try_iter().count(), 0);
+    }
+
+    #[test]
+    fn the_end_of_a_stream_clears_the_picture_once() {
+        let (mut l, rx, _stop, _, _) = listener();
+        l.on_event(frame(640, 360)).unwrap();
+        l.on_event(CameraStreamEvent::StreamStopped(CameraStreamEventDesc { data: None })).unwrap();
+        l.on_event(CameraStreamEvent::StreamStopped(CameraStreamEventDesc { data: None })).unwrap();
+        assert_eq!(rx.try_iter().collect::<Vec<_>>(), vec![Some((640, 360)), None]);
+    }
+
+    #[test]
+    fn the_listener_lets_go_of_the_device_when_the_stream_ends() {
+        let (mut l, _rx, _stop, _, device) = listener();
+        assert_eq!(Arc::strong_count(&device), 2);
+        l.on_event(CameraStreamEvent::StreamStopped(CameraStreamEventDesc { data: None })).unwrap();
+        assert_eq!(Arc::strong_count(&device), 1);
+        // a late frame after the end is not given back to a device it no longer has
+        l.on_event(frame(640, 360)).unwrap();
     }
 
     #[test]
@@ -170,7 +199,7 @@ mod tests {
 
     #[test]
     fn other_events_change_nothing() {
-        let (mut l, rx, stop, given_back) = listener();
+        let (mut l, rx, stop, given_back, _) = listener();
         l.on_event(CameraStreamEvent::StreamStarted(CameraStreamEventDesc { data: None })).unwrap();
         assert_eq!((rx.try_iter().count(), stop.try_iter().count(), *given_back.lock().unwrap()), (0, 0, 0));
     }

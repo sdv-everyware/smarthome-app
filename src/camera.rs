@@ -36,13 +36,21 @@ pub fn placeholder() -> ImageContentData {
 }
 
 /// The tile's picture for the camera's frame size (`State::camera`): the same picture
-/// (`current`, its token), with the frame size once the camera streams. No side effect.
+/// (`current`, its token) with the frame size, or the placeholder's one pixel when the camera
+/// does not stream. No side effect.
 pub fn picture(current: &ImageContentData, size: Option<(u32, u32)>) -> ImageContentData {
     let mut image = current.clone();
-    if let Some((width, height)) = size {
-        (image.width, image.height) = (width, height);
-    }
+    (image.width, image.height) = size.unwrap_or((1, 1));
     image
+}
+
+/// The placeholder's transparent pixel, put back into the tile's picture through the looper
+/// (which redraws) when a stream ended: the last frame must not stay in the tile.
+fn clear(looper: &Sender<LooperMessage>, token: har_types::resources::ResourceToken) {
+    let client = create_resource_manager_client(looper.clone());
+    if let Err(e) = client.update(token, har_types::resources::RawImageData::new(vec![0; 4], 1, 1)) {
+        log::warn!("smarthome: camera: the tile's picture was not cleared: {e:?}");
+    }
 }
 
 /// Looks for a camera and streams it into the tile; on its own thread for the panel's life.
@@ -50,6 +58,9 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
     let token = everyware_ui::images::get(IMAGE_KEY).unwrap_or_else(placeholder).id;
     thread::spawn(move || {
         let mut waiting_said = false;
+        // the devices of the last camera that did not open or stream: it is tried again only
+        // when the list of devices changes (plugged out and in, another camera), not every round
+        let mut failed_with: Option<Vec<String>> = None;
         loop {
             // a new manager after every stream or failure: its list is the devices of now
             // (a manager keeps the list it found; an empty list is looked up again, quietly)
@@ -63,7 +74,19 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
                 }
             };
             let id = loop {
-                if let Some(id) = first_camera(manager.get_camera_list().into_iter().map(|c| c.id).collect()) {
+                let ids: Vec<String> = manager.get_camera_list().into_iter().map(|c| c.id).collect();
+                if failed_with.as_ref() == Some(&ids) {
+                    // the same devices as the failure: wait for a change, with a new manager
+                    // (its list is the devices of now)
+                    thread::sleep(CAMERA_POLL);
+                    match CameraManager::new(create_resource_manager_client(looper.clone())) {
+                        Ok(m) => manager = m,
+                        Err(e) => log::warn!("smarthome: camera: no camera manager: {e:?}"),
+                    }
+                    continue;
+                }
+                failed_with = None;
+                if let Some(id) = first_camera(ids) {
                     break id;
                 }
                 if !waiting_said {
@@ -76,13 +99,14 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
             let device = match manager.open(&id, token) {
                 Ok(d) => d,
                 Err(e) => {
-                    log::warn!("smarthome: camera: {id} does not open: {e:?}");
+                    log::warn!("smarthome: camera: {id} does not open: {e:?}; tried again when the devices change");
+                    failed_with = Some(manager.get_camera_list().into_iter().map(|c| c.id).collect());
                     thread::sleep(CAMERA_POLL);
                     continue;
                 }
             };
             let (stopped_tx, stopped_rx) = channel();
-            let to_action = |w, h| Actions::CustomAction(HomeAction::Camera(w, h));
+            let to_action = |size| Actions::CustomAction(HomeAction::Camera(size));
             let listener = Arc::new(Mutex::new(Listener::new(device.clone(), actions.clone(), to_action, stopped_tx)));
             let config = CameraStreamConfiguration {
                 width: STREAM.0,
@@ -94,7 +118,10 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
             match started {
                 Ok(chosen) => log::info!("smarthome: camera: {id} streams {}x{}", chosen.width, chosen.height),
                 Err(e) => {
-                    log::warn!("smarthome: camera: {id} does not stream: {e}");
+                    log::warn!("smarthome: camera: {id} does not stream: {e}; tried again when the devices change");
+                    failed_with = Some(manager.get_camera_list().into_iter().map(|c| c.id).collect());
+                    let _ = manager.close(&id);
+                    drop(device);
                     thread::sleep(CAMERA_POLL);
                     continue;
                 }
@@ -102,6 +129,7 @@ pub fn spawn(actions: Sender<Actions<HomeAction>>, looper: Sender<LooperMessage>
             // until the stream ends (unplugged): then the device and the manager go, and the
             // panel looks again
             let _ = stopped_rx.recv();
+            clear(&looper, token);
             let _ = manager.close(&id);
             drop(device);
             thread::sleep(CAMERA_POLL);

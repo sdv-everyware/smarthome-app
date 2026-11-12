@@ -55,8 +55,9 @@ pub enum HomeAction {
     MatterResult(MatterCommandResult),
     /// How the page in the panel's browser is doing (browser.rs events).
     Browser(crate::browser::BrowserEvent),
-    /// The camera streams frames of this size into the tile's picture (camera.rs).
-    Camera(u32, u32),
+    /// The camera streams frames of this size into the tile's picture, or (None) its stream
+    /// ended and the tile shows its design again (camera.rs).
+    Camera(Option<(u32, u32)>),
 }
 
 impl StateAction<State, ()> for HomeAction {
@@ -81,7 +82,7 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
-            HomeAction::Camera(width, height) => state.camera = Some((*width, *height)),
+            HomeAction::Camera(size) => state.camera = *size,
             HomeAction::News(feed) => {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
                 state.dash.news.set_rows(crate::news::rows(feed, now));
