@@ -112,10 +112,11 @@ impl StateAction<State, ()> for HomeAction {
                     state.browser.shown();
                 }
             }
+            HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
             HomeAction::Gesture(node, gesture) if node == "#settings" => {
-                // Settings opens the panel with the browser as it is (empty after a close)
+                // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
-                    state.panel.open();
+                    state.prefs.sheet.open();
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -170,6 +171,51 @@ fn on_tabs(state: &mut State, node: &str, gesture: Gesture) {
     let tab = part_of("#home/tabs", node).and_then(|p| p.strip_prefix("#tabs/tab-")).and_then(|n| n.parse::<usize>().ok());
     if let Some(i) = tab.and_then(|n| n.checked_sub(1)) {
         state.tabs.on(i, gesture);
+    }
+}
+
+/// The settings sheet while it is open: the scrim and close close it, the rows act, the card
+/// takes the rest. A change of the time zone or the clock goes to the System bundle through
+/// user_preferences (not yet: the bridge carries no settings), so for now the sheet keeps it.
+fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
+    let prefs = &mut state.prefs;
+    let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
+    if scrim || (node == "#prefs/close" && clicked(&mut prefs.close, gesture)) {
+        prefs.sheet.close();
+        return;
+    }
+    match node {
+        "#prefs/timezone" => {
+            if prefs.timezone_row.on(gesture) {
+                prefs.timezone = prefs.next_time_zone().to_string();
+                log::info!("smarthome: time zone {}", prefs.timezone);
+            }
+        }
+        "#prefs/hour24" => {
+            if let Some(ToggleEvent::Toggled(on)) = prefs.hour24.on(gesture) {
+                log::info!("smarthome: 24-hour clock {on}");
+            }
+        }
+        "#prefs/wifi" => {
+            if prefs.wifi_row.on(gesture) {
+                // the settings make way for the Wi-Fi sheet, which starts over every time
+                prefs.sheet.close();
+                state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone());
+                screen_binder::send_wifi_command(wifi_scan());
+            }
+        }
+        _ => {
+            // the unit's segments, "#prefs/units/#segmented/segment-<i>"
+            if let Some(i) = part_of("#prefs/units", node)
+                .and_then(|p| p.strip_prefix("#segmented/segment-"))
+                .and_then(|n| n.parse::<usize>().ok())
+                .and_then(|n| n.checked_sub(1))
+            {
+                if let Some(SegmentedEvent::Selected(_)) = prefs.units.on(i, gesture) {
+                    log::info!("smarthome: temperature in {}", prefs.units.value());
+                }
+            }
+        }
     }
 }
 

@@ -7,8 +7,11 @@
 pub struct Clock {
     /// "FRI, 6 NOV" (#home/date)
     pub date: String,
-    /// "10:33" (#home/time)
+    /// "10:33" (#home/time) on a 24-hour clock; time_text() for the other
     pub time: String,
+    /// The hour (0..23) and the minute, for a 12-hour clock (time_text).
+    pub hour: i32,
+    pub min: i32,
     /// ":08" (#home/sec, next to the time)
     pub sec: String,
 }
@@ -48,7 +51,29 @@ fn format(wday: i32, mday: i32, mon: i32, hour: i32, min: i32, sec: i32) -> Cloc
     Clock {
         date: format!("{day}, {mday} {month}"),
         time: format!("{hour:02}:{min:02}"),
+        hour,
+        min,
         sec: format!(":{sec:02}"),
+    }
+}
+
+impl Clock {
+    /// The time as the settings want it: "21:05" on a 24-hour clock, "9:05" on a 12-hour one
+    /// (its AM or PM is sec_text's: the time's field has no room for it).
+    pub fn time_text(&self, hour24: bool) -> String {
+        if hour24 || self.time.is_empty() {
+            return self.time.clone();
+        }
+        let h = match self.hour % 12 { 0 => 12, h => h };
+        format!("{h}:{:02}", self.min)
+    }
+
+    /// Next to the time: the seconds on a 24-hour clock, AM or PM on a 12-hour one.
+    pub fn sec_text(&self, hour24: bool) -> String {
+        if hour24 || self.time.is_empty() {
+            return self.sec.clone();
+        }
+        (if self.hour < 12 { " AM" } else { " PM" }).to_string()
     }
 }
 
@@ -62,5 +87,16 @@ mod tests {
         assert_eq!(c.date, "FRI, 6 NOV");
         assert_eq!(c.time, "09:05");
         assert_eq!(c.sec, ":07");
+    }
+
+    #[test]
+    fn a_12_hour_clock() {
+        assert_eq!(format(5, 6, 10, 9, 5, 7).time_text(false), "9:05");
+        assert_eq!(format(5, 6, 10, 9, 5, 7).sec_text(false), " AM");
+        assert_eq!(format(5, 6, 10, 21, 5, 7).sec_text(false), " PM");
+        assert_eq!(format(5, 6, 10, 0, 30, 0).time_text(false), "12:30");
+        assert_eq!(format(5, 6, 10, 12, 0, 0).sec_text(false), " PM");
+        assert_eq!(format(5, 6, 10, 21, 5, 7).time_text(true), "21:05");
+        assert_eq!(format(5, 6, 10, 21, 5, 7).sec_text(true), ":07");
     }
 }

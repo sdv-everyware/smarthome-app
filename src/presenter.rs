@@ -18,8 +18,8 @@ impl Presenter<State, UiModel> for UiModelPresenter {
     fn present(model: &mut UiModel, state: &State) {
         model.title = "Hello, Smarthome".to_string();
         model.date = state.clock.date.clone();
-        model.time = state.clock.time.clone();
-        model.sec = state.clock.sec.clone();
+        model.time = state.clock.time_text(state.prefs.hour24.value);
+        model.sec = state.clock.sec_text(state.prefs.hour24.value);
 
         // dashboard: each control in its slot
         let d = &state.dash;
@@ -117,6 +117,22 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.panel_skeleton_2 = slot("#panel/skeleton-2", &browser.skeletons[1]);
         model.panel_skeleton_3 = slot("#panel/skeleton-3", &browser.skeletons[2]);
         model.panel_skeleton_4 = slot("#panel/skeleton-4", &browser.skeletons[3]);
+
+        // the settings: as the panel, the card from behind the right edge and the scrim
+        let prefs = &state.prefs;
+        let slide = prefs.sheet.transition();
+        model.prefs_card = Position::new(prefs.sheet.card_position(SCREEN, free_height), slide);
+        model.prefs_scrim = Meter::new(prefs.sheet.scrim(), slide);
+        model.prefs_scrim_taps = TapTarget(prefs.sheet.is_open());
+        model.prefs_close = slot("#prefs/close", &prefs.close);
+        model.prefs_timezone = prefs.timezone.clone();
+        model.prefs_hour24 = slot("#prefs/hour24", &prefs.hour24);
+        model.prefs_units = slot("#prefs/units", &prefs.units);
+        model.prefs_wifi = match state.wifi.state.as_ref() {
+            Some(link) if !link.ssid.is_empty() => link.ssid.clone(),
+            _ => "Not connected".to_string(),
+        };
+        model.prefs_about = prefs.about.clone();
 
         // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
         model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());
