@@ -2,7 +2,7 @@
 # The Smart HOme panel's design, from the designer's export in source/: the component library
 # (ui-lib's components-patch.js), then this app's patches: the Wi-Fi sheet (its content in the
 # library's #sheet), the dashboard's widgets (which use the library), the tabs and the screens
-# Rooms and Automations, the device sheet, the #sheet container with #panel and, for the
+# Rooms and Automations, the device sheet, the #sheet container with #panel and #prefs and, for the
 # designer, the sheets as frames with a prototype. Usage, from anywhere:
 #
 #   build.sh            # -> design/build/smarthome.fig (a build output, not in git)
@@ -26,7 +26,8 @@ rt "$B/steps/2.fig" "$B/steps/3.fig" "$HERE/dashboard-patch.js"
 rt "$B/steps/3.fig" "$B/steps/4.fig" "$HERE/screens-patch.js"
 rt "$B/steps/4.fig" "$B/steps/5.fig" "$HERE/sheet-patch.js"
 rt "$B/steps/5.fig" "$B/steps/6.fig" "$HERE/panel-patch.js"
-rt "$B/steps/6.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
+rt "$B/steps/6.fig" "$B/steps/7.fig" "$HERE/prefs-patch.js"
+rt "$B/steps/7.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
 echo "built $B/smarthome.fig"
 if [ "${1:-}" = --dcf ]; then
     DCF_CHECK='#home/title' \

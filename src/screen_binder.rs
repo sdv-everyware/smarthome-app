@@ -2,8 +2,9 @@
  * smarthome-app: the link to the house's data, over binder. The dashboard bundle
  * (vendor/sdv-everyware/everyware/bundles/dashboard) subscribes to the house's topics and calls
  * com.everyware.screen.IScreenLink/default (vendor/sdv-everyware/everyware/interfaces/screen): it
- * pushes the weather, the news, the Wi-Fi networks and state, the Matter devices and the answers
- * to the screen's commands, and hands in the sink the screen's commands go to. The commands carry
+ * pushes the weather, the news, the Wi-Fi networks and state, the Matter devices, the device's
+ * settings and the answers to the screen's commands, and hands in the sink the screen's commands
+ * go to. The commands carry
  * the password typed on the screen, so the server takes a call only from the dashboard bundle:
  * the kernel gives the caller's pid and uid with every call, and the SDV identity agent says
  * which service bundle that process is.
@@ -28,6 +29,8 @@ use google_sdv_identity::aidl::google::sdv::identity::ProcessIdentifier::Process
 use harry::reducer::Actions;
 use protobuf::Message;
 use std::sync::mpsc::Sender;
+use user_preferences_api::change_notifier::OnSettingsChangeRequest;
+use user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 
@@ -96,6 +99,12 @@ pub fn send_wifi_command(command: WifiCommand) -> bool {
 /// Sends a Matter command to the dashboard bundle; false: it did not go out (logged).
 pub fn send_matter_command(command: MatterCommand) -> bool {
     send("Matter", &command, |sink, bytes| sink.onMatterCommand(bytes))
+}
+
+/// Asks for a change of the device's settings; the values come back with publishSettings once
+/// the group's owner applied them. False: it did not go out (logged).
+pub fn send_settings_change(request: RequestSettingsChangeRequest) -> bool {
+    send("settings", &request, |sink, bytes| sink.onSettingsChange(bytes))
 }
 
 fn send<M: Message>(what: &str, command: &M, call: impl FnOnce(&Strong<dyn ICommandSink>, &[u8]) -> binder::Result<()>) -> bool {
@@ -222,6 +231,12 @@ impl IScreenLink for ScreenLink {
         let result = parse::<MatterResult>(result, "MatterResult")?;
         let message = MatterCommandResult { command: command.to_string(), node_id: node_id as u64, endpoint: endpoint as u32, result };
         self.act(HomeAction::MatterResult(message));
+        Ok(())
+    }
+
+    fn publishSettings(&self, settings: &[u8]) -> binder::Result<()> {
+        self.check_caller()?;
+        self.act(HomeAction::Settings(parse::<OnSettingsChangeRequest>(settings, "OnSettingsChangeRequest")?));
         Ok(())
     }
 

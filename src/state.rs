@@ -12,6 +12,12 @@ use everyware_ui::list_view::ListView;
 use everyware_ui::design::Sizes;
 use everyware_ui::sheet::{Edge, Layout, Sheet};
 use everyware_ui::pressable::Pressable;
+use protobuf::MessageField;
+use user_preferences_api::change_notifier::OnSettingsChangeRequest;
+use user_preferences_api::setting::setting::Value;
+use user_preferences_api::setting::Setting;
+use user_preferences_api::settings_group::SettingsGroupId;
+use user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest;
 use everyware_ui::segmented::Segmented;
 use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
 use everyware_ui::screens::Effect;
@@ -36,8 +42,10 @@ pub struct State {
     /// The sheet of a device (#device), opened from its tile's header.
     pub device: DeviceSheet,
     /// The panel (#panel, an instance of the library's #sheet): the browser with a title bar,
-    /// opened by a news story or Settings. Its layout is PANEL_LAYOUT (State::new).
+    /// opened by a news story. Its layout is PANEL_LAYOUT (State::new).
     pub panel: Sheet,
+    /// The settings (#prefs, the library's #sheet at the right edge), opened by Settings.
+    pub prefs: PrefsSheet,
     /// What the panel's browser shows (browser.rs).
     pub browser: BrowserPanel,
     /// The pages of the news feed's stories, in the list's order (a tap opens one).
@@ -60,7 +68,8 @@ impl State {
     /// The state at the start: everything default, the panel with the app's layout, the
     /// design's sizes.
     pub fn new(sizes: Sizes) -> Self {
-        State { panel: Sheet::new(PANEL_LAYOUT), sizes, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() }
+        let prefs = PrefsSheet { about: about(), timezone: system_time_zone(), ..Default::default() };
+        State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() }
     }
 }
 
@@ -76,6 +85,99 @@ pub const SCREEN: (f32, f32) = (1920.0, 1080.0);
 pub const WIFI_LAYOUT: Layout = Layout::Dialog;
 pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
+/// The settings' layout: a panel at the right edge, as the news panel.
+pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
+/// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
+/// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
+/// with the unit of temperatures (an enum: the index of the sheet's segment, °C 0, °F 1).
+/// The names are the System bundle's (everyware bundles/system/src/lib.rs, same constants); a
+/// changed name must change there too. The messages are Google's, no proto of ours:
+/// system/software_defined_vehicle/automotive_services/user_preferences/vsidl/v1/
+/// (change_notifier.proto, user_preferences_management_service.proto, setting.proto).
+pub const TIMEZONE: &str = "timezone";
+pub const HOUR_CYCLE_24: &str = "hour_cycle_24";
+pub const TEMPERATURE: &str = "temperature";
+
+/// The settings sheet (#prefs, design/prefs-patch.js): the time zone, the clock's format, the
+/// weather's unit, the way to the Wi-Fi sheet and what the panel is. The values the system
+/// applies are the System bundle's (SDV user_preferences); the sheet shows the ones in force.
+#[derive(Debug)]
+pub struct PrefsSheet {
+    pub sheet: Sheet,
+    pub close: IconButton,
+    /// The time zone's row (#prefs/timezone) and the name in force (#prefs/timezone/value): the
+    /// System bundle's, the system's until its settings came; the row changes nothing yet.
+    pub timezone_row: Pressable,
+    pub timezone: String,
+    /// The clock shows 24 hours (#prefs/hour24).
+    pub hour24: Toggle,
+    /// The weather's unit (#prefs/units): °C or °F, applied by the presenter.
+    pub units: Segmented,
+    /// The Wi-Fi row (#prefs/wifi): opens the Wi-Fi sheet.
+    pub wifi_row: Pressable,
+    /// What the panel is (#prefs/about), read once at the start (about()).
+    pub about: String,
+    /// The settings groups that came from user_preferences, by name, with their ids: a change
+    /// goes back with the id of its group.
+    pub groups: std::collections::BTreeMap<String, SettingsGroupId>,
+}
+
+impl Default for PrefsSheet {
+    fn default() -> Self {
+        PrefsSheet {
+            sheet: Sheet::new(PREFS_LAYOUT),
+            close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
+            timezone_row: Pressable::default(),
+            timezone: String::new(),
+            hour24: Toggle::new(true),
+            units: Segmented::new(["°C", "°F"]),
+            wifi_row: Pressable::default(),
+            about: String::new(),
+            groups: Default::default(),
+        }
+    }
+}
+
+impl PrefsSheet {
+    /// Opens the sheet; until the System bundle's settings came, with the system's time zone.
+    pub fn open(&mut self) {
+        if !self.groups.contains_key("time") {
+            self.timezone = system_time_zone();
+        }
+        self.sheet.open();
+    }
+
+    /// A settings group with its values in force: the sheet shows them, a switch the user just
+    /// flipped included (the owner applied it, or refused and sent the old value). A change
+    /// user_preferences still holds for an owner that is not there (pending) is shown as made.
+    pub fn on_settings(&mut self, group: &OnSettingsChangeRequest) {
+        let Some(id) = group.settings_group_id.as_ref().cloned() else { return };
+        for setting in group.active_settings.iter().chain(&group.pending_changes) {
+            match (setting.key.as_str(), &setting.value) {
+                (TIMEZONE, Some(Value::Blob(name))) => self.timezone = String::from_utf8_lossy(name).into_owned(),
+                (HOUR_CYCLE_24, Some(Value::Bool(on))) => self.hour24.set(*on),
+                (TEMPERATURE, Some(Value::Enum(unit))) if (0..=1).contains(unit) => self.units.select(*unit as usize),
+                (key, value) => log::debug!("smarthome: setting {key} = {value:?} not shown"),
+            }
+        }
+        self.groups.insert(id.name.clone(), id);
+    }
+
+    /// The request for one setting of the group it belongs to; None before the group came.
+    pub fn change(&self, key: &str, value: Value) -> Option<RequestSettingsChangeRequest> {
+        let group = match key {
+            TIMEZONE | HOUR_CYCLE_24 => "time",
+            TEMPERATURE => "units",
+            _ => return None,
+        };
+        let id = self.groups.get(group)?.clone();
+        Some(RequestSettingsChangeRequest {
+            settings_group_id: MessageField::some(id),
+            settings: vec![Setting { key: key.to_string(), value: Some(value), ..Default::default() }],
+            ..Default::default()
+        })
+    }
+}
 
 /// The dashboard's controls: library components in the slots of #smarthome-root
 /// (design/dashboard-patch.js). Local state until the bundles drive them.
@@ -491,5 +593,28 @@ impl BrowserPanel {
             Some(page) => page.title.clone(),
             None => String::new(),
         }
+    }
+}
+
+/// The system's time zone (persist.sys.timezone; empty: bionic uses UTC).
+pub fn system_time_zone() -> String {
+    Some(property("persist.sys.timezone")).filter(|tz| !tz.is_empty()).unwrap_or_else(|| "Etc/UTC".to_string())
+}
+
+/// What the panel is, for the settings' About: the system's release and build (build props).
+pub fn about() -> String {
+    let prop = property;
+    format!("Android {}, build {}\n{}", prop("ro.build.version.release"), prop("ro.build.id"), prop("ro.product.model"))
+}
+
+/// A system property's value, empty when it is not set.
+fn property(name: &str) -> String {
+    let name = std::ffi::CString::new(name).expect("no NUL in a property name");
+    let mut value = [0 as libc::c_char; 92];
+    // SAFETY: name is NUL terminated, value has room for PROP_VALUE_MAX bytes; bionic writes a
+    // NUL terminated string into it.
+    unsafe {
+        libc::__system_property_get(name.as_ptr(), value.as_mut_ptr());
+        std::ffi::CStr::from_ptr(value.as_ptr()).to_string_lossy().into_owned()
     }
 }

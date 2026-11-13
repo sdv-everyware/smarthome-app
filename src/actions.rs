@@ -5,7 +5,8 @@
 use crate::clock::Clock;
 use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
-use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, SETPOINT, STATUS_ENTER};
+use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE};
+use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
 use harry::state::StateAction;
@@ -53,6 +54,8 @@ pub enum HomeAction {
     MatterDevices(MatterDevices),
     /// The Matter bundle's answer to a command of the screen (screen_binder.rs).
     MatterResult(MatterCommandResult),
+    /// A settings group of the device with its values in force (user_preferences).
+    Settings(user_preferences_api::change_notifier::OnSettingsChangeRequest),
     /// How the page in the panel's browser is doing (browser.rs events).
     Browser(crate::browser::BrowserEvent),
 }
@@ -91,6 +94,7 @@ impl StateAction<State, ()> for HomeAction {
                 state.wifi.set_networks(networks.networks.iter().map(Network::from).collect());
             }
             HomeAction::WifiState(wifi_state) => on_wifi_state(&mut state.wifi, wifi_state),
+            HomeAction::Settings(group) => state.prefs.on_settings(group),
             HomeAction::WifiResult(result) => on_wifi_result(&mut state.wifi, result),
             HomeAction::MatterDevices(report) => {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
@@ -112,10 +116,11 @@ impl StateAction<State, ()> for HomeAction {
                     state.browser.shown();
                 }
             }
-            HomeAction::Gesture(node, gesture) if node == "#settings" => {
-                // Settings opens the panel with the browser as it is (empty after a close)
+            HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
+            HomeAction::Gesture(node, gesture) if node == "#settings" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+                // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
-                    state.panel.open();
+                    state.prefs.open();
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -170,6 +175,63 @@ fn on_tabs(state: &mut State, node: &str, gesture: Gesture) {
     let tab = part_of("#home/tabs", node).and_then(|p| p.strip_prefix("#tabs/tab-")).and_then(|n| n.parse::<usize>().ok());
     if let Some(i) = tab.and_then(|n| n.checked_sub(1)) {
         state.tabs.on(i, gesture);
+    }
+}
+
+/// The settings sheet while it is open: the scrim and close close it, the rows act, the card
+/// takes the rest. A switch shows the new value at once and asks the System bundle for it (SDV
+/// user_preferences); the value the bundle applied comes back with the settings and replaces it.
+fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
+    let prefs = &mut state.prefs;
+    let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
+    if scrim || (node == "#prefs/close" && clicked(&mut prefs.close, gesture)) {
+        prefs.sheet.close();
+        return;
+    }
+    match node {
+        "#prefs/timezone" => {
+            if prefs.timezone_row.on(gesture) {
+                // the list of the time zones comes with the link to user_preferences
+                log::info!("smarthome: time zone {} (no picker yet)", prefs.timezone);
+            }
+        }
+        "#prefs/hour24" => {
+            if let Some(ToggleEvent::Toggled(on)) = prefs.hour24.on(gesture) {
+                log::info!("smarthome: 24-hour clock {on}");
+                ask(prefs.change(HOUR_CYCLE_24, Value::Bool(on)));
+            }
+        }
+        "#prefs/wifi" => {
+            if prefs.wifi_row.on(gesture) {
+                // the settings make way for the Wi-Fi sheet, which starts over every time
+                prefs.sheet.close();
+                state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone());
+                screen_binder::send_wifi_command(wifi_scan());
+            }
+        }
+        _ => {
+            // the unit's segments, "#prefs/units/#segmented/segment-<i>"
+            if let Some(i) = part_of("#prefs/units", node)
+                .and_then(|p| p.strip_prefix("#segmented/segment-"))
+                .and_then(|n| n.parse::<usize>().ok())
+                .and_then(|n| n.checked_sub(1))
+            {
+                if let Some(SegmentedEvent::Selected(_)) = prefs.units.on(i, gesture) {
+                    log::info!("smarthome: temperature in {}", prefs.units.value());
+                    ask(prefs.change(TEMPERATURE, Value::Enum(i as i32)));
+                }
+            }
+        }
+    }
+}
+
+/// A settings change to the dashboard bundle; none while the group has not come yet.
+fn ask(request: Option<user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest>) {
+    match request {
+        Some(request) => {
+            screen_binder::send_settings_change(request);
+        }
+        None => log::warn!("smarthome: the settings are not there yet, the change stays on the screen"),
     }
 }
 

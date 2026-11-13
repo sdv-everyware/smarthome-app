@@ -269,6 +269,22 @@ ui_model! {
     panel_skeleton_3: Slot = "#panel/skeleton-3" ["SlotCustomizer"];
     panel_skeleton_4: Slot = "#panel/skeleton-4" ["SlotCustomizer"];
 
+    // The settings: #prefs, the library's #sheet (design/prefs-patch.js) with #prefs-content in
+    // it, at the right edge; the card and the scrim moved by the app, as #panel.
+    prefs_scrim: Meter = "#prefs/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    prefs_scrim_taps: TapTarget = "#prefs/scrim" ["TapTargetCustomizer"];
+    prefs_card: Position = "#prefs/card" ["FollowPositionCustomizer"] = Position::new(crate::state::PREFS_LAYOUT.closed(crate::state::SCREEN), None);
+    _prefs_card_tap: () = "#prefs/card" interactive;
+    prefs_close: Slot = "#prefs/close" ["SlotCustomizer"];
+    // the rows: a tap target with its value, or a control in a slot
+    _prefs_timezone_tap: () = "#prefs/timezone" interactive;
+    prefs_timezone: String = "#prefs/timezone/value";
+    prefs_hour24: Slot = "#prefs/hour24" ["SlotCustomizer"];
+    prefs_units: Slot = "#prefs/units" ["SlotCustomizer"];
+    _prefs_wifi_tap: () = "#prefs/wifi" interactive;
+    prefs_wifi: String = "#prefs/wifi/value";
+    prefs_about: String = "#prefs/about";
+
     // The screen's keyboard: an instance of #keyboard-dock, the library's keyboard in its slot
     // (labels, pressed keys, taps). The app never sets the dock's variant (a variant switch
     // rebuilds the tree on every frame of the animation): the instance stays closed and the
