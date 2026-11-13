@@ -90,6 +90,10 @@ pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
 /// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
 /// with the unit of temperatures (an enum: the index of the sheet's segment, °C 0, °F 1).
+/// The names are the System bundle's (everyware bundles/system/src/lib.rs, same constants); a
+/// changed name must change there too. The messages are Google's, no proto of ours:
+/// system/software_defined_vehicle/automotive_services/user_preferences/vsidl/v1/
+/// (change_notifier.proto, user_preferences_management_service.proto, setting.proto).
 pub const TIMEZONE: &str = "timezone";
 pub const HOUR_CYCLE_24: &str = "hour_cycle_24";
 pub const TEMPERATURE: &str = "temperature";
