@@ -144,10 +144,11 @@ impl PrefsSheet {
     }
 
     /// A settings group with its values in force: the sheet shows them, a switch the user just
-    /// flipped included (the owner applied it, or refused and sent the old value).
+    /// flipped included (the owner applied it, or refused and sent the old value). A change
+    /// user_preferences still holds for an owner that is not there (pending) is shown as made.
     pub fn on_settings(&mut self, group: &OnSettingsChangeRequest) {
         let Some(id) = group.settings_group_id.as_ref().cloned() else { return };
-        for setting in &group.active_settings {
+        for setting in group.active_settings.iter().chain(&group.pending_changes) {
             match (setting.key.as_str(), &setting.value) {
                 (TIMEZONE, Some(Value::Blob(name))) => self.timezone = String::from_utf8_lossy(name).into_owned(),
                 (HOUR_CYCLE_24, Some(Value::Bool(on))) => self.hour24.set(*on),
