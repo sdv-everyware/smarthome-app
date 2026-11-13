@@ -5,7 +5,8 @@
 use crate::clock::Clock;
 use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
-use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, SETPOINT, STATUS_ENTER};
+use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE};
+use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
 use harry::state::StateAction;
@@ -53,6 +54,8 @@ pub enum HomeAction {
     MatterDevices(MatterDevices),
     /// The Matter bundle's answer to a command of the screen (screen_binder.rs).
     MatterResult(MatterCommandResult),
+    /// A settings group of the device with its values in force (user_preferences).
+    Settings(user_preferences_api::change_notifier::OnSettingsChangeRequest),
     /// How the page in the panel's browser is doing (browser.rs events).
     Browser(crate::browser::BrowserEvent),
 }
@@ -91,6 +94,7 @@ impl StateAction<State, ()> for HomeAction {
                 state.wifi.set_networks(networks.networks.iter().map(Network::from).collect());
             }
             HomeAction::WifiState(wifi_state) => on_wifi_state(&mut state.wifi, wifi_state),
+            HomeAction::Settings(group) => state.prefs.on_settings(group),
             HomeAction::WifiResult(result) => on_wifi_result(&mut state.wifi, result),
             HomeAction::MatterDevices(report) => {
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
@@ -175,8 +179,8 @@ fn on_tabs(state: &mut State, node: &str, gesture: Gesture) {
 }
 
 /// The settings sheet while it is open: the scrim and close close it, the rows act, the card
-/// takes the rest. The clock's format and the weather's unit are the sheet's own for now; with
-/// the bridge to user_preferences they go to the System bundle, and the time zone row opens a list.
+/// takes the rest. A switch shows the new value at once and asks the System bundle for it (SDV
+/// user_preferences); the value the bundle applied comes back with the settings and replaces it.
 fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
     let prefs = &mut state.prefs;
     let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
@@ -194,6 +198,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
         "#prefs/hour24" => {
             if let Some(ToggleEvent::Toggled(on)) = prefs.hour24.on(gesture) {
                 log::info!("smarthome: 24-hour clock {on}");
+                ask(prefs.change(HOUR_CYCLE_24, Value::Bool(on)));
             }
         }
         "#prefs/wifi" => {
@@ -213,9 +218,20 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
             {
                 if let Some(SegmentedEvent::Selected(_)) = prefs.units.on(i, gesture) {
                     log::info!("smarthome: temperature in {}", prefs.units.value());
+                    ask(prefs.change(TEMPERATURE, Value::Enum(i as i32)));
                 }
             }
         }
+    }
+}
+
+/// A settings change to the dashboard bundle; none while the group has not come yet.
+fn ask(request: Option<user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest>) {
+    match request {
+        Some(request) => {
+            screen_binder::send_settings_change(request);
+        }
+        None => log::warn!("smarthome: the settings are not there yet, the change stays on the screen"),
     }
 }
 
