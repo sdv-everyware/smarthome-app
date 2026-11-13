@@ -98,5 +98,7 @@ mod tests {
         assert_eq!(format(5, 6, 10, 12, 0, 0).sec_text(false), " PM");
         assert_eq!(format(5, 6, 10, 21, 5, 7).time_text(true), "21:05");
         assert_eq!(format(5, 6, 10, 21, 5, 7).sec_text(true), ":07");
+        assert_eq!(format(5, 6, 10, 0, 5, 0).sec_text(false), " AM");
+        assert_eq!(format(5, 6, 10, 12, 0, 0).time_text(false), "12:00");
     }
 }

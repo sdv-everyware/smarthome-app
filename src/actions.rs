@@ -113,10 +113,10 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
-            HomeAction::Gesture(node, gesture) if node == "#settings" => {
+            HomeAction::Gesture(node, gesture) if node == "#settings" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
-                    state.prefs.sheet.open();
+                    state.prefs.open();
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -175,8 +175,8 @@ fn on_tabs(state: &mut State, node: &str, gesture: Gesture) {
 }
 
 /// The settings sheet while it is open: the scrim and close close it, the rows act, the card
-/// takes the rest. A change of the time zone or the clock goes to the System bundle through
-/// user_preferences (not yet: the bridge carries no settings), so for now the sheet keeps it.
+/// takes the rest. The clock's format and the weather's unit are the sheet's own for now; with
+/// the bridge to user_preferences they go to the System bundle, and the time zone row opens a list.
 fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
     let prefs = &mut state.prefs;
     let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
@@ -187,8 +187,8 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
     match node {
         "#prefs/timezone" => {
             if prefs.timezone_row.on(gesture) {
-                prefs.timezone = prefs.next_time_zone().to_string();
-                log::info!("smarthome: time zone {}", prefs.timezone);
+                // the list of the time zones comes with the link to user_preferences
+                log::info!("smarthome: time zone {} (no picker yet)", prefs.timezone);
             }
         }
         "#prefs/hour24" => {

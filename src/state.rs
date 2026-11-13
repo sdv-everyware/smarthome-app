@@ -81,8 +81,6 @@ pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The settings' layout: a panel at the right edge, as the news panel.
 pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
-/// The time zones a tap on the row steps through, until the row opens the list of all of them.
-pub const TIME_ZONES: [&str; 6] = ["Europe/Berlin", "Europe/London", "America/New_York", "Asia/Tokyo", "Australia/Sydney", "Etc/UTC"];
 
 /// The settings sheet (#prefs, design/prefs-patch.js): the time zone, the clock's format, the
 /// weather's unit, the way to the Wi-Fi sheet and what the panel is. The values the system
@@ -91,12 +89,13 @@ pub const TIME_ZONES: [&str; 6] = ["Europe/Berlin", "Europe/London", "America/Ne
 pub struct PrefsSheet {
     pub sheet: Sheet,
     pub close: IconButton,
-    /// The time zone's row (#prefs/timezone) and the name in force (#prefs/timezone/value).
+    /// The time zone's row (#prefs/timezone) and the name in force (#prefs/timezone/value), read
+    /// from the system when the sheet opens; the row changes nothing yet.
     pub timezone_row: Pressable,
     pub timezone: String,
     /// The clock shows 24 hours (#prefs/hour24).
     pub hour24: Toggle,
-    /// The weather's unit (#prefs/units): °C or °F.
+    /// The weather's unit (#prefs/units): °C or °F, applied by the presenter.
     pub units: Segmented,
     /// The Wi-Fi row (#prefs/wifi): opens the Wi-Fi sheet.
     pub wifi_row: Pressable,
@@ -110,7 +109,7 @@ impl Default for PrefsSheet {
             sheet: Sheet::new(PREFS_LAYOUT),
             close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
             timezone_row: Pressable::default(),
-            timezone: TIME_ZONES[0].to_string(),
+            timezone: String::new(),
             hour24: Toggle::new(true),
             units: Segmented::new(["°C", "°F"]),
             wifi_row: Pressable::default(),
@@ -120,10 +119,10 @@ impl Default for PrefsSheet {
 }
 
 impl PrefsSheet {
-    /// The next of TIME_ZONES after the one in force (the first if it is not one of them).
-    pub fn next_time_zone(&self) -> &'static str {
-        let at = TIME_ZONES.iter().position(|z| *z == self.timezone).map_or(0, |i| (i + 1) % TIME_ZONES.len());
-        TIME_ZONES[at]
+    /// Opens the sheet with the time zone in force.
+    pub fn open(&mut self) {
+        self.timezone = system_time_zone();
+        self.sheet.open();
     }
 }
 

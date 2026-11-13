@@ -53,7 +53,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.rooms = screen(1);
         model.automations = screen(2);
 
-        present_weather(model, state.weather.as_ref(), state.house_link);
+        present_weather(model, state.weather.as_ref(), state.house_link, state.prefs.units.value() == "°F");
 
         // while the keyboard dock is open the dialogs centre in the screen above it
         let free_height = if state.osk.open() { SCREEN.1 - KEYBOARD_DOCK_H } else { SCREEN.1 };
@@ -143,7 +143,9 @@ impl Presenter<State, UiModel> for UiModelPresenter {
 /// The weather widget. Before the first message it says so; the chart and the icon keep the
 /// design's preview until then. Without the house link the values stay and the details line
 /// says the data is not live.
-fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: bool) {
+fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: bool, fahrenheit: bool) {
+    // the settings' unit (°C or °F); the bundle sends °C
+    let t = |c: f64| if fahrenheit { c * 9.0 / 5.0 + 32.0 } else { c };
     let Some(w) = weather else {
         model.weather_place = String::new();
         model.weather_temp = "–".to_string();
@@ -153,10 +155,10 @@ fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: b
     };
     model.weather_place = w.place.clone();
     model.weather_icon = slot("#weather/icon", &Picture::of(w.code));
-    model.weather_temp = format!("{:.0}°", w.temperature_c);
+    model.weather_temp = format!("{:.0}°", t(w.temperature_c));
     model.weather_condition = words(w.code).to_string();
     model.weather_details = if house_link {
-        format!("Feels {:.0}° · {:.0} % · {:.0} km/h", w.apparent_c, w.humidity_percent, w.wind_kmh)
+        format!("Feels {:.0}° · {:.0} % · {:.0} km/h", t(w.apparent_c), w.humidity_percent, w.wind_kmh)
     } else {
         format!("Last reading {} · no link to the house's data", w.time)
     };

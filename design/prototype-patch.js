@@ -1,6 +1,7 @@
 // prototype-patch.js: the sheets for the designer, as DesignCompose does it in Figma. Run last
 // (build.sh): it uses #sheet and #keyboard-dock (components-patch.js), #wifi-content
-// (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js) and the
+// (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js),
+// #prefs-content (prefs-patch.js) and the
 // dashboard's names (dashboard-patch.js).
 //
 // On the screen the sheets are instances in their closed variant, below the screen edge; the app
@@ -11,7 +12,7 @@
 //   the header's tabs -> Screen · Overview / Rooms / Automations (navigate; the Overview starts)
 //   #status/wifi      -> Wi-Fi · networks (overlay); a tap on the list -> Wi-Fi · password + keyboard
 //   a tile's header   -> Device sheet · <device> (overlay); in Rooms a device tile, the same
-//   #settings         -> Panel · right (overlay from the right, the right half of the screen)
+//   #settings         -> Settings · right (overlay from the right, the right half of the screen)
 //   Cancel, Connect, the close button, a tap outside a card -> close
 //
 // The buttons inside a card are instances; their taps are transparent hotspot frames on top.
@@ -167,9 +168,13 @@ module.exports = function patch(msg, helpers) {
   const panelContent = variantOf('#panel-content', 'state=default');
   const panel = sheetOverlay('Panel · right', 'right', panelContent);
   const openPanel = target => openOverlay(target, panel.from);
+  // the settings: the same right edge with the settings' content (prefs-patch.js)
+  const prefsContent = variantOf('#prefs-content', 'state=default');
+  const prefs = sheetOverlay('Settings · right', 'right', prefsContent);
   const settings = nodes.find(n => n.name === '#settings');
   if (!settings) throw new Error('#settings not found: run dashboard-patch.js first');
-  onTap(settings, openPanel(panel.overlay));
+  onTap(settings, openPanel(prefs.overlay));
+  onTap(hotspot(prefs.overlay, prefsContent, '#prefs/close', 'close'), close());
   // a news story opens its page in the panel's browser; close at the title bar
   const news = nodes.find(n => n.name === '#news/list');
   if (!news) throw new Error('#news/list not found: run dashboard-patch.js first');
@@ -215,8 +220,8 @@ module.exports = function patch(msg, helpers) {
   screens.forEach(({ f }, from) => SCREENS.forEach((t, to) => {
     if (to !== from) onTap(frame(f, `hotspot: ${t}`, tabX(to), tabY, 154, 46), navigate(screens[to].f));
   }));
-  // every screen's bottom bar: Settings opens the panel
-  screens.forEach(({ f }) => onTap(within(f, '#settings'), openPanel(panel.overlay)));
+  // every screen's bottom bar: Settings opens the settings
+  screens.forEach(({ f }) => onTap(within(f, '#settings'), openPanel(prefs.overlay)));
   // the Overview's copy keeps the dashboard's taps: Wi-Fi and the tiles' headers
   const ov = screens[0].f;
   onTap(within(screens[0].head, '#status/wifi'), openOverlay(nets.overlay, nets.from));
