@@ -38,6 +38,11 @@ use std::time::Duration;
 /// The page that leaves the browser empty and quiet: sent when the panel closes, so a video
 /// stops playing (the hidden zone stops the frames, not the page or its sound).
 pub const BLANK: &str = "about:blank";
+
+/// The one word for the relay that is not an address: end the browser's page processes
+/// (har-browser-relay.sh). A page process of WebKit can hang for good; every later page and
+/// every touch then waits behind it.
+pub const RESTART: &str = "restart";
 /// The longest URL sent (Hacker News' own limit is lower; PIPE_BUF is 4096).
 const MAX_URL: usize = 2048;
 
@@ -87,10 +92,28 @@ pub fn open(url: &str) {
         log::warn!("smarthome: browser: not a web address ({} bytes), not sent", url.len());
         return;
     }
+    match send(url) {
+        // the host only: logcat is readable over adb, the full address is the household's reading
+        Ok(()) => log::info!("smarthome: browser: open a page on {}", host(url)),
+        Err(e) => log::warn!("smarthome: browser: {}: {e} (is the browser's relay running?)", fifo_path()),
+    }
+}
+
+/// Asks the relay to end the browser's page processes; Cog starts new ones for the next page.
+/// Never blocks, as `open`.
+pub fn restart_pages() {
+    match send(RESTART) {
+        Ok(()) => log::warn!("smarthome: browser: asked the relay to end the page processes"),
+        Err(e) => log::warn!("smarthome: browser: {}: {e} (is the browser's relay running?)", fifo_path()),
+    }
+}
+
+/// Writes one line to the relay's FIFO.
+fn send(line: &str) -> std::io::Result<()> {
     let path = fifo_path();
     // O_NONBLOCK: open fails with ENXIO when no relay reads, instead of waiting for one;
     // O_NOFOLLOW: a link planted in the directory does not redirect the write.
-    let sent = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW)
         .open(&path)
@@ -98,13 +121,8 @@ pub fn open(url: &str) {
             if !fifo.metadata()?.file_type().is_fifo() {
                 return Err(std::io::Error::other("not a FIFO"));
             }
-            fifo.write_all(format!("{url}\n").as_bytes())
-        });
-    match sent {
-        // the host only: logcat is readable over adb, the full address is the household's reading
-        Ok(()) => log::info!("smarthome: browser: open a page on {}", host(url)),
-        Err(e) => log::warn!("smarthome: browser: {path}: {e} (is the browser's relay running?)"),
-    }
+            fifo.write_all(format!("{line}\n").as_bytes())
+        })
 }
 
 /// What Cog reported about the page it was asked for (har-browser-events.sh).

@@ -68,10 +68,24 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
-                // a page that never reports (no events FIFO, a stuck load): show what there is
+                // a page that never reports: a page process of WebKit may hang for good, and every
+                // later page would wait behind it. Its page processes are ended and the page is
+                // sent once more; when that does not help either, what there is shows.
                 if state.browser.loading_since().is_some_and(|t| t.elapsed() > crate::state::PAGE_TIMEOUT) {
-                    log::warn!("smarthome: browser: no word from the page in {:?}, showing it", crate::state::PAGE_TIMEOUT);
-                    state.browser.shown();
+                    match state.browser.retry(Instant::now()) {
+                        Some(page) => {
+                            log::warn!("smarthome: browser: no word from the page in {:?}, sending it again in new page processes", crate::state::PAGE_TIMEOUT);
+                            crate::browser::restart_pages();
+                            crate::browser::open(&page.url);
+                        }
+                        None => {
+                            log::warn!("smarthome: browser: no word from the page after a restart either, showing it");
+                            state.browser.shown();
+                        }
+                    }
+                }
+                if state.browser.blank_overdue() {
+                    crate::browser::open(crate::browser::BLANK);
                 }
             }
             HomeAction::Browser(event) => {
@@ -79,6 +93,10 @@ impl StateAction<State, ()> for HomeAction {
                 if state.browser.is_loading() {
                     log::info!("smarthome: browser: {event:?} after {:?}", state.browser.loading_since().map(|t| t.elapsed()).unwrap_or_default());
                     state.browser.shown();
+                }
+                // the panel was closed while this page loaded: about:blank now that it has
+                if state.browser.on_event(*event) {
+                    crate::browser::open(crate::browser::BLANK);
                 }
             }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
@@ -109,8 +127,9 @@ impl StateAction<State, ()> for HomeAction {
                 if scrim || (node == "#panel/close" && clicked(&mut state.browser.close, *gesture)) {
                     state.panel.close();
                     // the hidden zone stops the browser's frames, not its page: a video would
-                    // play on, heard and not seen
-                    if state.browser.page.take().is_some() {
+                    // play on, heard and not seen. about:blank waits for the end of the load
+                    // (BrowserPanel::blank_after_load).
+                    if state.browser.close_page(Instant::now()) {
                         crate::browser::open(crate::browser::BLANK);
                     }
                     state.browser.shown();

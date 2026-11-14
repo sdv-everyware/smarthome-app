@@ -680,6 +680,14 @@ impl DeviceSheet {
 #[derive(Debug)]
 pub struct BrowserPanel {
     pub page: Option<crate::browser::Page>,
+    /// The page has loaded (or failed): it may go to about:blank now.
+    pub loaded: bool,
+    /// Since when the panel is closed while its page still loads: about:blank waits for the
+    /// end of the load. WebKit 2.48 can hang the page process of a page that goes to
+    /// about:blank in the middle of its load and is opened again soon after.
+    pub blank_after_load: Option<std::time::Instant>,
+    /// The page was sent once more after its page processes were ended (`retry`).
+    pub retried: bool,
     pub close: IconButton,
     /// The loader over the browser (#panel/loading): skeleton slots #panel/skeleton-1..4, a
     /// heading, text, a picture and text, sweeping while the page loads.
@@ -691,6 +699,9 @@ impl Default for BrowserPanel {
         let wide = |kind| Skeleton::new(kind, SkeletonSize::Wide);
         BrowserPanel {
             page: None,
+            loaded: false,
+            blank_after_load: None,
+            retried: false,
             close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
             skeletons: [wide(SkeletonKind::Heading), wide(SkeletonKind::Text), wide(SkeletonKind::Media), wide(SkeletonKind::Text)],
         }
@@ -701,13 +712,65 @@ impl Default for BrowserPanel {
 pub const PAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl BrowserPanel {
-    /// A page was asked for: the loader shows and sweeps, the browser stays hidden.
+    /// A page was asked for: the loader shows and sweeps, the browser stays hidden. The new
+    /// page replaces the old one in the browser, so an about:blank still waiting is not needed.
     pub fn loading(&mut self, page: crate::browser::Page, now: std::time::Instant) {
         self.page = Some(page);
+        self.loaded = false;
+        self.blank_after_load = None;
+        self.retried = false;
+        self.restart_loader(now);
+    }
+
+    fn restart_loader(&mut self, now: std::time::Instant) {
         for s in &mut self.skeletons {
             s.stop();
             s.start(now);
         }
+    }
+
+    /// The page had no word for PAGE_TIMEOUT: the first time, the loader starts over and the
+    /// page is returned to be sent once more (after its page processes are ended); after
+    /// that, None.
+    pub fn retry(&mut self, now: std::time::Instant) -> Option<crate::browser::Page> {
+        if self.retried {
+            return None;
+        }
+        let page = self.page.clone()?;
+        self.retried = true;
+        self.restart_loader(now);
+        Some(page)
+    }
+
+    /// The panel closes: the page is forgotten. True when the browser may go to about:blank
+    /// now (the page has loaded); otherwise about:blank waits for the end of the load
+    /// (`blank_after_load`).
+    pub fn close_page(&mut self, now: std::time::Instant) -> bool {
+        if self.page.take().is_none() {
+            return false;
+        }
+        if self.loaded {
+            return true;
+        }
+        self.blank_after_load = Some(now);
+        false
+    }
+
+    /// The browser reported `event`. True when the browser may go to about:blank now: the
+    /// panel was closed while this page loaded, and the load has ended.
+    pub fn on_event(&mut self, event: crate::browser::BrowserEvent) -> bool {
+        use crate::browser::BrowserEvent;
+        if !matches!(event, BrowserEvent::Loaded | BrowserEvent::Failed) {
+            return false;
+        }
+        self.loaded = true;
+        self.blank_after_load.take().is_some()
+    }
+
+    /// An about:blank that waited longer than PAGE_TIMEOUT for the end of a load: it goes
+    /// now (a video of a page that never ends loading would play on, heard and not seen).
+    pub fn blank_overdue(&mut self) -> bool {
+        self.blank_after_load.take_if(|since| since.elapsed() > PAGE_TIMEOUT).is_some()
     }
 
     /// The page shows (Cog committed it, finished, failed, or the loader gave up): the loader
