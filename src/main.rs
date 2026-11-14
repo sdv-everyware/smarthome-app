@@ -169,8 +169,11 @@ fn main() {
     // The house's data: the dashboard bundle pushes it here over binder, where the caller is
     // known (screen_binder.rs).
     screen_binder::spawn(actions.clone());
-    // How the page in the panel's browser is doing: the loader goes when it shows.
-    browser::spawn_events(actions.clone());
+    // How the page in the panel's browser is doing: the loader goes when it shows. Only with the
+    // browser (experimental, off by default: config::browser).
+    if config::browser() {
+        browser::spawn_events(actions.clone());
+    }
 
     // Touch and keyboard from evdev; --touch-size maps panel units to pixels (RB3). Opened on a
     // thread of their own: opening the devices takes about 0.2 s (the USB HID open, the release
@@ -216,8 +219,8 @@ fn main() {
 
     log::info!("smarthome: started, loading document '{}'", args.document_id);
     // --wayland-zones: serve Wayland clients and composite them into their zones: har_zone
-    // clients of ZONE_CAMERA_TAG into the camera tile (UiModel::camera_zone), the browser into
-    // the panel (ZONE_BROWSER_TAG, UiModel::browser_zone). Needs the looper's EGL display, so after
+    // clients of ZONE_CAMERA_TAG into the camera tile (UiModel::camera_zone), the browser (when the
+    // image has it, config::browser) into the panel (ZONE_BROWSER_TAG, UiModel::browser_zone). Needs the looper's EGL display, so after
     // create_looper and before start, which blocks. A client that dies leaves the tile with
     // its last frame; the dashboard itself is not affected.
     let _bridge = args.wayland_zones.then(|| {
@@ -236,12 +239,13 @@ fn main() {
                     socket: SocketSource::Name(config::wayland_socket_name()),
                     display_ids: displays.iter().map(|d| d.id).collect(),
                     context_id: "smarthome master".to_string(),
-                    // An ordinary Wayland app (the browser) shows in the panel
+                    // With the browser an ordinary Wayland app (Cog) shows in the panel
                     // (UiModel::browser_zone); the camera tile keeps har_zone clients.
                     xdg_app_zones: Vec::new(),
                     zone_max_fps: args.zone_fps,
                     zone_plane: args.zone_plane,
-                    xdg_default_tag: Some(ui_model::ZONE_BROWSER_TAG.to_string()),
+                    // Without the browser no ordinary window gets a zone; har_zone clients do.
+                    xdg_default_tag: config::browser().then(|| ui_model::ZONE_BROWSER_TAG.to_string()),
                 },
             )
         }

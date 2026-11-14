@@ -144,8 +144,9 @@ impl StateAction<State, ()> for HomeAction {
                 on_sheet(&mut state.wifi, &mut state.osk, node, *gesture)
             }
             HomeAction::Gesture(node, gesture) if node == "#news/list" || node.starts_with("#news/list/") => {
-                // a tap on a story opens its page in the panel's browser
-                if let Some(page) = on_news(&mut state.dash, node, *gesture).and_then(|row| state.stories.get(row)) {
+                // a tap on a story opens its page in the panel's browser, when the image has it
+                let row = on_news(&mut state.dash, node, *gesture).filter(|_| crate::config::browser());
+                if let Some(page) = row.and_then(|row| state.stories.get(row)) {
                     crate::browser::open(&page.url);
                     state.browser.loading(page.clone(), Instant::now());
                     state.panel.open();
