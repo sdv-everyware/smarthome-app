@@ -69,7 +69,6 @@ module.exports = function patch(msg, helpers) {
   const text = (parent, name, x, y, w, h, s, size, fnt, rgb, align = 'LEFT', valign = 'TOP', extra) => A.text(parent, name, x, y, w, h, s, size, fnt, rgb, align, valign, extra);
 
   const row = variantOf('#list-item', 'state=default, kind=text, lines=one, size=column');
-  const bar = variantOf('#scrollbar', `length=${LIST_H}`);
   const close = variantOf('#icon-button', 'kind=tonal, state=default, icon=x, size=regular');
   const more = variantOf('#button', 'kind=ghost, state=default, size=regular');
   const symbol = variantOf('#symbol', 'icon=house');
@@ -80,7 +79,7 @@ module.exports = function patch(msg, helpers) {
     const l = frame(card, name, x, LIST_Y, ROW_W, LIST_H, { frameMaskDisabled: false });
     rows.forEach(([k, v], i) => A.instance(l, `${name}/preview-${i + 1}`, 0, i * (ROW_H + ROW_GAP), row, undefined,
       [textOverride(row, '#list-item/title', k), textOverride(row, '#list-item/trailing-text', v)]));
-    slotted(card, `${name}-scrollbar`, x + ROW_W + SB_GAP, LIST_Y, bar);
+    A.scrollbarSlot(card, `${name}-scrollbar`, x + ROW_W + SB_GAP, LIST_Y, LIST_H);
   };
 
   const SHEET_Y = lib.size.y + 80;

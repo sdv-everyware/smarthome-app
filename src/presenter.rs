@@ -6,7 +6,7 @@ use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
 use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
-use crate::state::{State, SCREEN, SCREENS, SCREEN_EFFECT};
+use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::transitions::{self, Change, ComponentKind};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
 use crate::ui_model::UiModel;
@@ -125,6 +125,16 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.prefs_scrim = Meter::new(prefs.sheet.scrim(), slide);
         model.prefs_scrim_taps = TapTarget(prefs.sheet.is_open());
         model.prefs_close = slot("#prefs/close", &prefs.close);
+        // the pages lie side by side in the design: each slides by the first one's width from
+        // the first one's place
+        let first = state.sizes.part("#prefs-content", "state=default", "#prefs/page-main");
+        let (x, width) = first.map_or((0.0, 0.0), |f| (f.x, f.width));
+        let page = |step: PrefsStep| ScreenView::new(prefs.pages.page(step as usize, PREFS_EFFECT, width), x);
+        model.prefs_page_main = page(PrefsStep::Main);
+        model.prefs_page_timezone = page(PrefsStep::TimeZone);
+        model.prefs_back = slot("#prefs/back", &prefs.back);
+        model.prefs_zones = list("#prefs/zones", &prefs.zone_list);
+        model.prefs_zones_scrollbar = scrollbar("#prefs/zones-scrollbar", &prefs.zone_list);
         model.prefs_timezone = prefs.timezone.clone();
         model.prefs_hour24 = slot("#prefs/hour24", &prefs.hour24);
         model.prefs_units = slot("#prefs/units", &prefs.units);

@@ -276,6 +276,13 @@ ui_model! {
     prefs_card: Position = "#prefs/card" ["FollowPositionCustomizer"] = Position::new(crate::state::PREFS_LAYOUT.closed(crate::state::SCREEN), None);
     _prefs_card_tap: () = "#prefs/card" interactive;
     prefs_close: Slot = "#prefs/close" ["SlotCustomizer"];
+    // the content's two pages, the settings and the time zone list: they slide (state.rs Pages)
+    prefs_page_main: ScreenView = "#prefs/page-main" ["ScreenCustomizer"] = ScreenView { opacity: Meter::new(100.0, None), x: None };
+    prefs_page_timezone: ScreenView = "#prefs/page-timezone" ["ScreenCustomizer"] = ScreenView::default();
+    prefs_back: Slot = "#prefs/back" ["SlotCustomizer"];
+    // interactive: a drag may start between the rows
+    prefs_zones: Slot = "#prefs/zones" interactive ["SlotCustomizer"];
+    prefs_zones_scrollbar: Slot = "#prefs/zones-scrollbar" ["SlotCustomizer"];
     // the rows: a tap target with its value, or a control in a slot
     _prefs_timezone_tap: () = "#prefs/timezone" interactive;
     prefs_timezone: String = "#prefs/timezone/value";

@@ -5,7 +5,7 @@
 use crate::clock::Clock;
 use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
-use crate::state::{Dashboard, DeviceSheet, Network, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE};
+use crate::state::{Dashboard, DeviceSheet, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
 use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
@@ -130,13 +130,13 @@ impl StateAction<State, ()> for HomeAction {
                 // a tile's header opens its device's sheet
                 let index = DeviceId::ALL.iter().position(|d| d.header() == node).expect("of_header found it");
                 if state.dash.headers[index].on(*gesture) {
-                    state.device.open(DeviceId::ALL[index], &state.devices, &state.dash);
+                    state.device.open(DeviceId::ALL[index], &state.devices, &state.dash, &state.heights);
                 }
             }
             HomeAction::Gesture(node, gesture) if node == "#status/wifi" => {
                 // the Wi-Fi indicator opens the sheet; the sheet starts over every time
                 if state.dash.wifi.on(*gesture) == Some(ButtonEvent::Clicked) && !state.wifi.form.is_open() {
-                    state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone());
+                    state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone(), state.heights.wifi);
                     screen_binder::send_wifi_command(wifi_scan());
                 }
             }
@@ -188,11 +188,14 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
         prefs.sheet.close();
         return;
     }
+    if prefs.step() == PrefsStep::TimeZone {
+        on_zones(prefs, node, gesture);
+        return;
+    }
     match node {
         "#prefs/timezone" => {
             if prefs.timezone_row.on(gesture) {
-                // the list of the time zones comes with the link to user_preferences
-                log::info!("smarthome: time zone {} (no picker yet)", prefs.timezone);
+                prefs.open_zones(state.heights.zones);
             }
         }
         "#prefs/hour24" => {
@@ -205,7 +208,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
             if prefs.wifi_row.on(gesture) {
                 // the settings make way for the Wi-Fi sheet, which starts over every time
                 prefs.sheet.close();
-                state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone());
+                state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone(), state.heights.wifi);
                 screen_binder::send_wifi_command(wifi_scan());
             }
         }
@@ -220,6 +223,29 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
                     log::info!("smarthome: temperature in {}", prefs.units.value());
                     ask(prefs.change(TEMPERATURE, Value::Enum(i as i32)));
                 }
+            }
+        }
+    }
+}
+
+/// The time zone list (as Car Settings' picker): a tap on a zone shows it at once, asks the
+/// System bundle for it and goes back to the settings; Back goes back without a change; a drag
+/// or a fling scrolls the list (ui-lib ListView).
+fn on_zones(prefs: &mut PrefsSheet, node: &str, gesture: Gesture) {
+    if node == "#prefs/back" {
+        if prefs.back.on(gesture) == Some(ButtonEvent::Clicked) {
+            prefs.show(PrefsStep::Main);
+        }
+        return;
+    }
+    if node == "#prefs/zones" || node.starts_with("#prefs/zones/") {
+        let row = node.strip_prefix("#prefs/zones/").and_then(|r| r.parse().ok());
+        if let Some(ListEvent::Chosen(row)) = prefs.zone_list.on(row, gesture, Instant::now()) {
+            if let Some(id) = prefs.zone_at(row) {
+                log::info!("smarthome: time zone {id}");
+                prefs.timezone = id.to_string();
+                ask(prefs.change(TIMEZONE, Value::Blob(id.as_bytes().to_vec())));
+                prefs.show(PrefsStep::Main);
             }
         }
     }

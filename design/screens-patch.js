@@ -32,7 +32,7 @@ const CONTENT_X = 48, CONTENT_Y = 128, CONTENT_W = 1824, CONTENT_H = 788;
 const TILE_W = 438, TILE_H = 248, TILE_GAP = 24, TILES = 8, TILES_Y = 168;
 const SCENES_Y = TILES_Y + 2 * TILE_H + TILE_GAP + 28;
 // Automations: the Backup's column (512) on the left, the routines (#list-item wide, 960) on
-// the right; rows 72 + 8, the list as high as the column below its heading (744, #scrollbar)
+// the right; rows 72 + 8, the list as high as the column below its heading (744)
 const LEFT_W = 512, RIGHT_X = 592, LIST_W = 960, ROW_H = 72, ROW_GAP = 8, LIST_Y = 44, LIST_H = 744;
 
 const ROOM_TABS = ['Living room', 'Entryway', 'Bedroom', 'Office'];
@@ -141,7 +141,6 @@ module.exports = function patch(msg, helpers) {
   const scene = variantOf('#button', 'kind=secondary, state=default, size=regular');
   const add = variantOf('#button', 'kind=ghost, state=default, size=compact');
   const routineRow = variantOf('#list-item', 'state=default, kind=toggle, lines=two, size=wide');
-  const bar = variantOf('#scrollbar', `length=${LIST_H}`);
   const tileOf = kind => variantOf('#tile', `kind=${kind}, state=default`);
 
   let y = lib.size.y + 80;
@@ -204,7 +203,7 @@ module.exports = function patch(msg, helpers) {
     const l = frame(c, '#automations/routines', RIGHT_X, LIST_Y, LIST_W, LIST_H, { frameMaskDisabled: false });
     ROUTINES.forEach(([when, what], i) => A.instance(l, `#automations/routines/preview-${i + 1}`, 0, i * (ROW_H + ROW_GAP), routineRow, undefined,
       [textOverride(routineRow, '#list-item/title', when), textOverride(routineRow, '#list-item/subtitle', what)]));
-    slotted(c, '#automations/routines-scrollbar', RIGHT_X + LIST_W + 16, LIST_Y, bar);
+    A.scrollbarSlot(c, '#automations/routines-scrollbar', RIGHT_X + LIST_W + 16, LIST_Y, LIST_H);
   }, { rows: true });
   y += automationsSet.set.size.y + 80;
   lib.size = { x: lib.size.x, y };

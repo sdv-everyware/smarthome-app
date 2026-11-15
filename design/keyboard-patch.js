@@ -120,7 +120,7 @@ module.exports = function patch(msg, helpers) {
       const list = frame(card, '#wifi/networks', 0, 64, NET_W, LIST_H, { frameMaskDisabled: false });
       for (let i = 0; i < NET_ROWS; i++) inst(list, `#wifi/networks/preview-${i + 1}`, 0, i * (NET_H + NET_GAP), networkRow());
       // the scrollbar to the right of the list, as high as it
-      slotted(card, '#wifi/scrollbar', NET_W + 16, 64, variantOf('#scrollbar', `length=${LIST_H}`));
+      A.scrollbarSlot(card, '#wifi/scrollbar', NET_W + 16, 64, LIST_H);
       slotted(card, '#wifi/rescan', CONTENT_W - BTN_W, btnY, secondary, labelled(secondary, '#button/label', 'Rescan'));
     } else {
       text(card, 'Network label', 0, 40, 200, 20, 'Network', 15, FONT.regular, C.ink2);

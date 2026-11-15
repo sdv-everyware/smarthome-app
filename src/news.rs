@@ -9,14 +9,12 @@ use everyware_ui::images;
 use everyware_ui::list_item::{ListItem, ListItemKind, ListItemLines, ListItemSize};
 use everyware_ui::list_view::ListView;
 
-/// The list's viewport: the column below its heading (design/dashboard-patch.js).
-pub const LIST_H: f32 = 744.0;
 /// Row height (lines three) plus the gap.
 pub const ROW_PITCH: f32 = 128.0 + 8.0;
 
-/// The feed before the first message: no rows.
-pub fn empty() -> ListView {
-    ListView::new([], LIST_H, ROW_PITCH)
+/// The feed before the first message: no rows, `height` high (the design's #news/list).
+pub fn empty(height: f32) -> ListView {
+    ListView::new([], height, ROW_PITCH)
 }
 
 /// The rows of a feed at `now` (Unix time, for the age).
