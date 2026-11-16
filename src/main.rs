@@ -151,8 +151,8 @@ fn main() {
     {
         let monitor = performance_monitor.clone();
         let document_id = args.document_id.clone();
-        thread::spawn(move || match monitor.wait_for_first_frame(&document_id) {
-            Ok(()) => log::info!("smarthome: first frame of '{document_id}' at {:.3} s since boot", clock::since_boot()),
+        thread::spawn(move || match monitor.wait_for_first_frame(&document_id, None, None) {
+            Ok(_) => log::info!("smarthome: first frame of '{document_id}' at {:.3} s since boot", clock::since_boot()),
             Err(e) => log::warn!("smarthome: no first frame of '{document_id}': {e:?}"),
         });
     }
@@ -220,6 +220,11 @@ fn main() {
         })
     };
 
+    // Zones on planes join the flips of the display's KMS context, which learns of them when
+    // the looper sets the display up: before create_looper.
+    if args.wayland_zones && args.zone_plane {
+        har_gl_context::wayland_bridge::listen_for_zone_planes();
+    }
     // The display, the GPU and the renderer (the connector probe, EGL, the mode set, the shaders).
     let mut looper = create_looper(&displays);
     looper
