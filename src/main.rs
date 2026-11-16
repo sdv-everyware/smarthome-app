@@ -147,11 +147,11 @@ fn main() {
     // The first frame of the document, from the performance monitor, logged with the time since
     // the kernel started (CLOCK_BOOTTIME, the clock of the kernel log and of init's
     // ro.boottime.*): the boot-time measurement reads it (everyware/tools/boot-time). The time is
-    // the frame's own (`FirstFrame::recorded_at`), not the time this thread woke up.
+    // the frame's own (`FirstFrameTiming::recorded_at`), not the time this thread woke up.
     {
         let monitor = performance_monitor.clone();
         let document_id = args.document_id.clone();
-        thread::spawn(move || match monitor.first_frame_of(&document_id, None, None) {
+        thread::spawn(move || match monitor.time_to_first_frame(&document_id, None, None) {
             Ok(frame) => {
                 let at = clock::since_boot() - frame.recorded_at.elapsed().as_secs_f64();
                 log::info!("smarthome: first frame of '{document_id}' at {at:.3} s since boot")
