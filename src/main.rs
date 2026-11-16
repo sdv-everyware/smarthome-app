@@ -151,7 +151,7 @@ fn main() {
     {
         let monitor = performance_monitor.clone();
         let document_id = args.document_id.clone();
-        thread::spawn(move || match monitor.wait_for_first_frame(&document_id, None, None) {
+        thread::spawn(move || match monitor.first_frame_of(&document_id, None, None) {
             Ok(frame) => {
                 let at = clock::since_boot() - frame.recorded_at.elapsed().as_secs_f64();
                 log::info!("smarthome: first frame of '{document_id}' at {at:.3} s since boot")
