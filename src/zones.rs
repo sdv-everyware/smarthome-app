@@ -1,13 +1,14 @@
-//! The time zones the settings sheet offers (#prefs, step=timezone), as Car Settings offers
-//! them: the 91 zones of frameworks/base/packages/SettingsLib/res/xml/timezones.xml, sorted by
-//! their offset now, then by name (packages/apps/Car/Settings/src/com/android/car/settings/
-//! datetime/TimeZonePickerScreenPreferenceController.java). A row shows the place and the
-//! offset ("Amsterdam", "GMT+01:00 · Europe"); the offset is read from the device's tzdata, so
-//! it follows daylight saving time. The chosen id goes to the System bundle unchanged. A zone in
-//! force that the list lacks (Europe/Berlin) is not selected; the list opens on the first zone
-//! with its offset.
+//! The time zones the settings sheet offers (#prefs, the page of the time zone), as Car
+//! Settings offers them: the 91 zones of frameworks/base/packages/SettingsLib/res/xml/
+//! timezones.xml, sorted by their offset now, then by name (packages/apps/Car/Settings/src/com/
+//! android/car/settings/datetime/TimeZonePickerScreenPreferenceController.java). A row shows the
+//! place and the offset ("Amsterdam", "GMT+01:00 · Europe"); the offset is read from the
+//! device's tzdata with the time it holds until (the next change of daylight saving time of one
+//! of the zones), so the list is read again when it opens after such a change. The chosen id
+//! goes to the System bundle unchanged. A zone in force that the list lacks (Europe/Berlin) is
+//! not selected; the list opens on the first zone with its offset.
 
-use jiff::tz::TimeZoneDatabase;
+use jiff::tz::{TimeZone, TimeZoneDatabase};
 use jiff::Timestamp;
 
 /// The zone ids of SettingsLib's timezones.xml, in its order.
@@ -47,26 +48,51 @@ pub struct Zone {
     pub offset: i32,
 }
 
+/// The zones of the list with the time their offsets hold.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Zones {
+    /// The zones, sorted as Car Settings sorts them.
+    pub list: Vec<Zone>,
+    /// When the offsets were read.
+    pub read: Timestamp,
+    /// The next change of an offset of one of the zones (daylight saving time), if any.
+    pub until: Option<Timestamp>,
+}
+
+impl Zones {
+    /// Whether the offsets are the ones of `now`: not before they were read (the clock was set
+    /// back), not at or past the next change.
+    pub fn hold_at(&self, now: Timestamp) -> bool {
+        now >= self.read && self.until.is_none_or(|until| now < until)
+    }
+}
+
 /// The zones with their offset now, sorted as Car Settings sorts them; a zone the device's
 /// tzdata lacks is left out. Empty when there is no tzdata at all.
-pub fn zones() -> Vec<Zone> {
+pub fn zones() -> Zones {
     let Some(db) = database() else {
         log::warn!("smarthome: no tzdata in {TZDATA:?}: no time zones to choose");
-        return Vec::new();
+        return Zones::default();
     };
     let now = Timestamp::now();
-    let mut zones: Vec<Zone> = ZONES
+    let found: Vec<(&'static str, TimeZone)> = ZONES
         .iter()
         .filter_map(|&id| match db.get(id) {
-            Ok(tz) => Some(zone(id, tz.to_offset(now).seconds())),
+            Ok(tz) => Some((id, tz)),
             Err(e) => {
                 log::warn!("smarthome: time zone {id} not in tzdata: {e}");
                 None
             }
         })
         .collect();
-    zones.sort_by(|a, b| a.offset.cmp(&b.offset).then_with(|| a.place.cmp(&b.place)));
-    zones
+    let mut list: Vec<Zone> = found.iter().map(|(id, tz)| zone(id, tz.to_offset(now).seconds())).collect();
+    list.sort_by(|a, b| a.offset.cmp(&b.offset).then_with(|| a.place.cmp(&b.place)));
+    Zones { list, read: now, until: next_change(found.iter().map(|(_, tz)| tz), now) }
+}
+
+/// The first transition of any of `zones` after `now`: the offsets of the list hold until then.
+fn next_change<'a>(zones: impl Iterator<Item = &'a TimeZone>, now: Timestamp) -> Option<Timestamp> {
+    zones.filter_map(|tz| tz.following(now).next()).map(|t| t.timestamp()).min()
 }
 
 /// The time zone database of the device, if it has one.
@@ -130,6 +156,26 @@ mod tests {
         assert_eq!(row_for_offset(&zones, Some(50400)), 2);
         assert_eq!(row_for_offset(&zones, None), 0);
         assert_eq!(row_for_offset(&[], Some(3600)), 0);
+    }
+
+    #[test]
+    fn the_offsets_hold_until_the_next_change_of_daylight_saving_time() {
+        let cet = TimeZone::posix("CET-1CEST,M3.5.0,M10.5.0/3").unwrap();
+        let utc = TimeZone::UTC;
+        let now: Timestamp = "2026-10-01T00:00:00Z".parse().unwrap();
+        // the last Sunday of October, 03:00 summer time: 01:00 UTC
+        let change: Timestamp = "2026-10-25T01:00:00Z".parse().unwrap();
+        assert_eq!(next_change([&cet, &utc].into_iter(), now), Some(change));
+        assert_eq!(next_change([&utc].into_iter(), now), None);
+
+        let zones = Zones { list: Vec::new(), read: now, until: Some(change) };
+        assert!(zones.hold_at(now));
+        assert!(zones.hold_at("2026-10-25T00:59:59Z".parse().unwrap()));
+        assert!(!zones.hold_at(change));
+        assert!(!zones.hold_at("2026-11-16T00:00:00Z".parse().unwrap()));
+        // the clock set back (the RTC before the network's time came)
+        assert!(!zones.hold_at("2026-09-30T23:59:59Z".parse().unwrap()));
+        assert!(Zones { until: None, ..zones }.hold_at("2030-01-01T00:00:00Z".parse().unwrap()));
     }
 
     #[test]

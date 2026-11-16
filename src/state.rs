@@ -74,6 +74,7 @@ impl State {
         let heights = ListHeights::of(&sizes);
         let mut state = State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
         state.dash.news = crate::news::empty(heights.news);
+        state.prefs.build_zones(heights.zones);
         state
     }
 }
@@ -172,10 +173,11 @@ pub struct PrefsSheet {
     /// System bundle's, the system's until its settings came; the row opens the time zone list.
     pub timezone_row: Pressable,
     pub timezone: String,
-    /// The time zone list (step=timezone): back to the settings, the zones (zones.rs, read when
-    /// the list first opens) and their rows, the zone in force selected.
+    /// The time zone list (the page PrefsStep::TimeZone): back to the settings, the zones
+    /// (zones.rs: read at the start, again when the list opens after a change of daylight
+    /// saving time) and their rows, the zone in force selected.
     pub back: Button,
-    pub zones: Vec<crate::zones::Zone>,
+    pub zones: crate::zones::Zones,
     pub zone_list: ListView,
     /// The clock shows 24 hours (#prefs/hour24).
     pub hour24: Toggle,
@@ -199,7 +201,7 @@ impl Default for PrefsSheet {
             timezone_row: Pressable::default(),
             timezone: String::new(),
             back: Button::new(ButtonKind::Ghost, "‹ Back").compact(),
-            zones: Vec::new(),
+            zones: Default::default(),
             zone_list: ListView::new([], 0.0, ZONE_PITCH),
             hour24: Toggle::new(true),
             units: Segmented::new(["°C", "°F"]),
@@ -208,6 +210,13 @@ impl Default for PrefsSheet {
             groups: Default::default(),
         }
     }
+}
+
+/// The rows of the time zone list: the place and the offset, as Car Settings shows them.
+fn zone_rows(zones: &crate::zones::Zones) -> impl Iterator<Item = ListItem> + '_ {
+    zones.list.iter().map(|z| {
+        ListItem::new(ListItemKind::Plain, z.place.clone(), z.detail.clone()).lines(ListItemLines::Two).size(ListItemSize::Panel)
+    })
 }
 
 impl PrefsSheet {
@@ -230,25 +239,51 @@ impl PrefsSheet {
         self.pages.show(step as usize);
     }
 
-    /// Shows the time zone list, `height` high (the design's), the zone in force selected and
-    /// in view; a zone the list lacks is not selected, the list opens on its offset
-    /// (zones::opening_row). The offsets are taken now, so a list opened after a change of
-    /// daylight saving time shows the new ones.
-    pub fn open_zones(&mut self, height: f32) {
+    /// Builds the time zone list, `height` high (the design's), with the offsets of now and the
+    /// zone in force marked. Done once at the start: the rows are in harry's tree from the first
+    /// frame, so a tap on the time zone only slides the list in. Rows that appear with the tap
+    /// make harry build its whole tree and layout again in that frame (about 160 ms on the
+    /// RB3), which cut the slide's start off.
+    pub fn build_zones(&mut self, height: f32) {
         self.zones = crate::zones::zones();
-        let rows = self.zones.iter().map(|z| {
-            ListItem::new(ListItemKind::Plain, z.place.clone(), z.detail.clone()).lines(ListItemLines::Two).size(ListItemSize::Panel)
-        });
-        self.zone_list = ListView::new(rows, height, ZONE_PITCH);
-        let (selected, row) = crate::zones::opening_row(&self.zones, &self.timezone);
+        self.zone_list = ListView::new(zone_rows(&self.zones), height, ZONE_PITCH);
+        self.mark_zone();
+    }
+
+    /// Reads the zones again when their offsets changed since they were read (daylight saving
+    /// time, or the clock was set): the same rows with the new offsets and order. Rows of the
+    /// same variant only change their texts, which harry sets in the tree it keeps.
+    fn refresh_zones(&mut self) {
+        if self.zones.hold_at(jiff::Timestamp::now()) {
+            return;
+        }
+        self.zones = crate::zones::zones();
+        self.zone_list.set_rows(zone_rows(&self.zones));
+    }
+
+    /// Marks the zone in force in the list and returns the row the list opens on; a zone the
+    /// list lacks is not marked, the list opens on its offset (zones::opening_row).
+    fn mark_zone(&mut self) -> usize {
+        let (selected, row) = crate::zones::opening_row(&self.zones.list, &self.timezone);
         self.zone_list.select(selected);
+        row
+    }
+
+    /// Shows the time zone list, the zone in force marked and in view, with the offsets of now.
+    pub fn open_zones(&mut self, height: f32) {
+        if self.zones.list.is_empty() {
+            self.build_zones(height);
+        } else {
+            self.refresh_zones();
+        }
+        let row = self.mark_zone();
         self.zone_list.scroll_to(row.saturating_sub(ZONES_ABOVE));
         self.show(PrefsStep::TimeZone);
     }
 
     /// The zone of a row of the list.
     pub fn zone_at(&self, row: usize) -> Option<&'static str> {
-        self.zones.get(row).map(|z| z.id)
+        self.zones.list.get(row).map(|z| z.id)
     }
 
     /// A settings group with its values in force: the sheet shows them, a switch the user just
