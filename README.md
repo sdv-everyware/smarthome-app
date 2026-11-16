@@ -1,7 +1,7 @@
 # smarthome-app
 
 The smart home panel on harry (1920 x 1080): the time and the weather, the rooms as tiles (the
-lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the news, and
+lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the agenda, and
 the Wi-Fi settings in a sheet. It is written against the EveryWare UI library
 (`vendor/sdv-everyware/ui-lib`); the house's data comes from the dashboard bundle over gRPC
 (`src/house_link.rs`). How the app is built, step by step: [`docs/harry-app-anatomy.md`](docs/harry-app-anatomy.md).

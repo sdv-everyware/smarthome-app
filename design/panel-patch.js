@@ -7,7 +7,7 @@
 //   area: a title bar (#panel/title, one line with an ellipsis; #panel/close, a tonal icon
 //   button) and under it #panel/browser, a plain white frame with its own clip: the app turns it
 //   into a Wayland zone (harry draws an external image only on a plain frame, as #camera/feed),
-//   where the browser shows the page of a news story. Over it #panel/loading, a white frame
+//   where the browser shows a page. Over it #panel/loading, a white frame
 //   with #skeleton slots (#panel/skeleton-1..4: a heading, text, a picture, text) that the app
 //   shows and sweeps while the page loads and fades out when it shows.
 // - #panel over #smarthome-root: #sheet layout=right, state=closed, in a plain absolute frame
@@ -49,8 +49,8 @@ module.exports = function patch(msg, helpers) {
   const y = lib.size.y + 80;
   const panelContent = A.componentSet(lib, '#panel-content', 80, y, [['state', ['default']]], CONTENT_W, CONTENT_H, 0, 0, (s) => {
     const box = A.hugBox(s, CONTENT_W, CONTENT_H);
-    // the title bar: the story's title, close at the right (as #device/close)
-    A.text(box, '#panel/title', 0, 0, CONTENT_W - close.size.x - 16, 40, 'A news story on the web', 28, FONT.semibold, C.ink,
+    // the title bar: the page's title, close at the right (as #device/close)
+    A.text(box, '#panel/title', 0, 0, CONTENT_W - close.size.x - 16, 40, 'A page on the web', 28, FONT.semibold, C.ink,
       'LEFT', 'CENTER', { maxLines: 1, textTruncation: 'ENDING' });
     const slot = frame(box, '#panel/close', CONTENT_W - close.size.x + 12, -16, close.size.x, close.size.y);
     A.instance(slot, '#panel/close/preview', 0, 0, close);

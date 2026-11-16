@@ -224,30 +224,88 @@ const { C, FONT } = helpers;
   const primary = v('#button', 'kind=primary, state=default, size=compact');
   slotInto(find('Intercom', 'Action'), '#intercom/talk', primary, labelOf(primary, '#button/label', 'Talk'));
 
-  // the right column: a news feed, a scrolling list of #list-item (kind image, lines three, size
-  // column) with its scrollbar, in the place of Scenes and home activity; that column is kept
-  // whole on the Components page (frame Backup, outside the screen: the fetch takes the root
-  // and the Library only).
+  // the right column: the agenda, a scrolling list of #list-item (size column: a subheader per
+  // day, kind subheader, and the day's events, kind leading-text: the start over the duration and
+  // a bar in the event's colour) with its scrollbar, in the place of Scenes and home activity;
+  // that column is kept whole on the Components page (frame Backup, outside the screen: the
+  // fetch takes the root and the Library only). Over the list the card that links the calendar
+  // (#agenda/link: a QR code the app makes, a title, a hint): at opacity 0 here, the app shows it
+  // while no calendar is linked; the designer's frame "Agenda · connect" (prototype-patch.js)
+  // shows it open.
   const scenes = nodes.find(n => n.name === 'Scenes and home activity' && n.parentIndex && key(n.parentIndex.guid) === key(console_.guid));
   if (!scenes) throw new Error('Home console / Scenes and home activity not found');
   const compPage = nodes.find(n => n.type === 'CANVAS' && n.name === 'Components');
-  const NEWS_W = 512, NEWS_H = scenes.size.y, HEAD_H = 28, HEAD_GAP = 16, SB_W = 6, SB_GAP = 16;
-  const LIST_W = NEWS_W - SB_GAP - SB_W, LIST_H = NEWS_H - HEAD_H - HEAD_GAP, ROW_PITCH = 128 + 8;
-  const news = frame(console_, 'News feed', 0, 0, NEWS_W, NEWS_H, {
+  const AG_W = 512, AG_H = scenes.size.y, HEAD_H = 28, HEAD_GAP = 16, SB_W = 6, SB_GAP = 16;
+  const LIST_W = AG_W - SB_GAP - SB_W, LIST_H = AG_H - HEAD_H - HEAD_GAP;
+  // the rows' pitches (the app's, agenda.rs): a subheader 48, an event 72, 8 between
+  const ROW_PITCH = 72 + 8, SUB_PITCH = 48 + 8;
+  const agenda = frame(console_, 'Agenda', 0, 0, AG_W, AG_H, {
     bordersTakeSpace: false, stackMode: 'VERTICAL', stackSpacing: HEAD_GAP, stackPrimarySizing: 'FIXED', stackLayoutVersion: 1,
   });
-  news.parentIndex = { guid: console_.guid, position: scenes.parentIndex.position };
-  const backup = frame(compPage, 'Backup', 3400, 0, NEWS_W + 48, NEWS_H + 96, { fillPaints: [A.solid(C.page)], frameMaskDisabled: false });
-  A.text(backup, 'Heading', 24, 20, NEWS_W, 28, 'Backup: Scenes and home activity (not on the screen)', 17, FONT.semibold, C.ink);
+  agenda.parentIndex = { guid: console_.guid, position: scenes.parentIndex.position };
+  const backup = frame(compPage, 'Backup', 3400, 0, AG_W + 48, AG_H + 96, { fillPaints: [A.solid(C.page)], frameMaskDisabled: false });
+  A.text(backup, 'Heading', 24, 20, AG_W, 28, 'Backup: Scenes and home activity (not on the screen)', 17, FONT.semibold, C.ink);
   scenes.parentIndex = { guid: backup.guid, position: '!' };
   scenes.transform = at(24, 72);
-  A.text(news, 'News heading', 0, 0, NEWS_W, HEAD_H, 'News', 23, FONT.semibold, C.ink);
-  const body = frame(news, 'News content', 0, HEAD_H + HEAD_GAP, NEWS_W, LIST_H);
-  const list = frame(body, '#news/list', 0, 0, LIST_W, LIST_H, { frameMaskDisabled: false });
-  const newsRow = variantOf('#list-item', 'state=default, kind=image, lines=three, size=column');
-  for (let i = 0; i * ROW_PITCH < LIST_H; i++) instance(list, `#news/list/preview-${i + 1}`, 0, i * ROW_PITCH, newsRow);
-  A.scrollbarSlot(body, '#news/scrollbar', LIST_W + SB_GAP, 0, LIST_H);
-  log(`#news: a list ${LIST_W}x${LIST_H} (rows ${ROW_PITCH} apart) and its scrollbar in place of Scenes and home activity, which is on the Components page (Backup)`);
+  A.text(agenda, 'Agenda heading', 0, 0, AG_W, HEAD_H, 'Agenda', 23, FONT.semibold, C.ink);
+  const body = frame(agenda, 'Agenda content', 0, HEAD_H + HEAD_GAP, AG_W, LIST_H);
+  const list = frame(body, '#agenda/list', 0, 0, LIST_W, LIST_H, { frameMaskDisabled: false });
+  // the preview: days as the app shows them (texts and the bars' colours as overrides)
+  const subRow = variantOf('#list-item', 'state=default, kind=subheader, lines=one, size=column');
+  const eventRow = variantOf('#list-item', 'state=default, kind=leading-text, lines=two, size=column');
+  const partOf = (variant, name) => {
+    const stack = [...kids(key(variant.guid))];
+    while (stack.length) { const n = stack.shift(); if (n.name === name) return n; stack.push(...kids(key(n.guid))); }
+    throw new Error(`${variant.name}: no ${name}`);
+  };
+  const said = (variant, texts) => Object.entries(texts).map(([part, chars]) => {
+    const t = partOf(variant, part);
+    return { guidPath: { guids: [t.guid] }, textData: { characters: chars, lines: t.textData.lines } };
+  });
+  const hex = h => [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255];
+  const PREVIEW = [
+    ['TODAY', 'NOV 10'],
+    ['8:30 AM', '30 min', 'Team stand-up', 'Video call', '039be5'],
+    ['12:00 PM', '1h', 'Lunch with Anna', 'Café Central', '33b679'],
+    ['6:30 PM', '1h 30', 'Yoga', 'Studio 5', 'e67c73'],
+    ['TOMORROW', 'NOV 11'],
+    ['All day', '', 'Birthday of Mum', '', '8e24aa'],
+    ['9:00 AM', '2h', 'Dentist', 'Main Street 12', 'f4511e'],
+    ['WEDNESDAY', 'NOV 12'],
+    ['7:00 PM', '2h', 'Cinema', 'Odeon', '0b8043'],
+  ];
+  let y = 0;
+  PREVIEW.forEach((r, i) => {
+    if (y >= LIST_H) return;
+    if (r.length === 2) {
+      instance(list, `#agenda/list/preview-${i + 1}`, 0, y, subRow, {}, said(subRow, { '#list-item/title': r[0], '#list-item/trailing-text': r[1] }));
+      y += SUB_PITCH;
+    } else {
+      const bar = { guidPath: { guids: [partOf(eventRow, '#list-item/accent').guid] }, fillPaints: [A.solid(hex(r[4]))] };
+      instance(list, `#agenda/list/preview-${i + 1}`, 0, y, eventRow, {}, [...said(eventRow, {
+        '#list-item/leading-title': r[0], '#list-item/leading-subtitle': r[1] || ' ', '#list-item/title': r[2], '#list-item/subtitle': r[3] || ' ',
+      }), bar]);
+      y += ROW_PITCH;
+    }
+  });
+  A.scrollbarSlot(body, '#agenda/scrollbar', LIST_W + SB_GAP, 0, LIST_H);
+  // The link card, over the list: white as the rows, its content in a centred column. The QR
+  // code is a plain frame without children: harry draws a picture on a plain rectangle only,
+  // and the app's picture (black on white, the quiet zone in it) fills it; the grey is the
+  // placeholder until it comes. With no QR code the app takes the frame out of the column
+  // (display gone) and the texts move to the middle.
+  const QR = 264, TITLE_H = 28, HINT_H = 22, LINK_GAP = 16, TEXT_W = LIST_W - 64;
+  const linkY = Math.round((LIST_H - (QR + LINK_GAP + TITLE_H + 8 + HINT_H)) / 2);
+  const link = frame(body, '#agenda/link', 0, 0, LIST_W, LIST_H, {
+    opacity: 0, fillPaints: [A.solid(C.white)], cornerRadius: 16, frameMaskDisabled: false,
+    bordersTakeSpace: false, stackMode: 'VERTICAL', stackSpacing: 0, stackPrimaryAlignItems: 'CENTER', stackCounterAlignItems: 'CENTER',
+    stackPrimarySizing: 'FIXED', stackCounterSizing: 'FIXED', stackLayoutVersion: 1,
+  });
+  frame(link, '#agenda/qr', (LIST_W - QR) / 2, linkY, QR, QR, { fillPaints: [A.solid(C.line)] });
+  // (the gaps as the texts' own top: the frame that goes leaves no gap behind)
+  A.text(link, '#agenda/link-title', 32, linkY + QR, TEXT_W, LINK_GAP + TITLE_H, 'Scan to connect Google Calendar', 20, FONT.semibold, C.ink, 'CENTER', 'BOTTOM', { maxLines: 1, textTruncation: 'ENDING' });
+  A.text(link, '#agenda/link-hint', 32, linkY + QR + LINK_GAP + TITLE_H, TEXT_W, 8 + HINT_H, 'Your phone must be on the same Wi-Fi', 15, FONT.regular, C.ink2, 'CENTER', 'BOTTOM', { maxLines: 1, textTruncation: 'ENDING' });
+  log(`#agenda: a list ${LIST_W}x${LIST_H} (subheaders ${SUB_PITCH}, events ${ROW_PITCH} apart), its scrollbar and the link card (#agenda/qr ${QR}, opacity 0) in place of Scenes and home activity, which is on the Components page (Backup)`);
 
   // 6. the device sheet's targets (sheet-patch.js): a tap on a tile's header opens its device.
   // The whole header is the target (the chevron alone is 20 x 20, too small to hit); nothing

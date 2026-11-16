@@ -10,7 +10,7 @@ use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
 use harry::state::StateAction;
-use everyware_ui::part_of;
+use everyware_ui::{part_of, row_of};
 use everyware_ui::button::{ButtonEvent, IconButton};
 use everyware_ui::dropdown::DropdownEvent;
 use everyware_ui::dock::KeyboardDock;
@@ -22,7 +22,7 @@ use everyware_ui::toggle::ToggleEvent;
 use everyware_ui::Gesture;
 use everyware_catalog::matter::MatterDevices;
 use everyware_catalog::matter_service::{MatterCommand, MatterMoveToLevel, MatterSetFanMode, MatterSetOnOff, MatterSetSetpoint};
-use everyware_catalog::news::{NewsFeed, NewsThumbnail};
+use everyware_catalog::calendar::Agenda;
 use everyware_catalog::weather::Weather;
 use std::time::Instant;
 
@@ -37,10 +37,9 @@ pub enum HomeAction {
     Gesture(String, Gesture),
     /// The weather of the house, from the dashboard bundle (screen_binder.rs).
     Weather(Weather),
-    /// The news feed, from the news bundle (screen_binder.rs).
-    News(NewsFeed),
-    /// The thumbnail of a story of the feed (screen_binder.rs).
-    NewsThumbnail(NewsThumbnail),
+    /// The agenda and the state of the calendar's link, from the calendar bundle
+    /// (screen_binder.rs).
+    Agenda(Agenda),
     /// The dashboard bundle subscribed to the screen's commands, or its process died
     /// (screen_binder.rs).
     HouseLink(bool),
@@ -82,13 +81,7 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
-            HomeAction::News(feed) => {
-                let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
-                state.dash.news.set_rows(crate::news::rows(feed, now));
-                state.stories = feed.stories.iter().map(crate::browser::Page::of).collect();
-                crate::news::forget_pictures(feed);
-            }
-            HomeAction::NewsThumbnail(thumbnail) => crate::news::set_picture(thumbnail),
+            HomeAction::Agenda(agenda) => state.agenda.set(agenda.clone(), &state.prefs.timezone, state.prefs.hour24.value),
             HomeAction::HouseLink(up) => state.house_link = *up,
             HomeAction::WifiNetworks(networks) => {
                 state.wifi.set_networks(networks.networks.iter().map(Network::from).collect());
@@ -143,14 +136,9 @@ impl StateAction<State, ()> for HomeAction {
             HomeAction::Gesture(node, gesture) if state.wifi.form.is_open() => {
                 on_sheet(&mut state.wifi, &mut state.osk, node, *gesture)
             }
-            HomeAction::Gesture(node, gesture) if node == "#news/list" || node.starts_with("#news/list/") => {
-                // a tap on a story opens its page in the panel's browser, when the image has it
-                let row = on_news(&mut state.dash, node, *gesture).filter(|_| crate::config::browser());
-                if let Some(page) = row.and_then(|row| state.stories.get(row)) {
-                    crate::browser::open(&page.url);
-                    state.browser.loading(page.clone(), Instant::now());
-                    state.panel.open();
-                }
+            HomeAction::Gesture(node, gesture) if node == "#agenda/list" || node.starts_with("#agenda/list/") => {
+                // a drag or a fling scrolls the agenda; a tap on a row chooses nothing
+                let _ = state.agenda.list.on(row_of("#agenda/list", node), *gesture, Instant::now());
             }
             HomeAction::Gesture(node, gesture) if part_of("#home/tabs", node).is_some() => {
                 on_tabs(state, node, *gesture);
@@ -163,6 +151,8 @@ impl StateAction<State, ()> for HomeAction {
         }
         // the screen's keyboard follows the focus (every form of the screen, or'ed)
         state.osk.follow(state.wifi.form.focused().is_some());
+        // the agenda's rows follow the clock (a new minute), the zone and the clock's format
+        state.agenda.follow(&state.prefs.timezone, state.prefs.hour24.value);
         // an open sheet shows the device as it is now (the dashboard or a bundle changed it)
         if state.device.container.is_open() {
             state.device.refresh(&state.devices, &state.dash);
@@ -379,16 +369,6 @@ fn on_matter_result(pending: &mut [Option<Instant>; 4], devices: &Devices, resul
             pending[i] = None;
         }
     }
-}
-
-/// The news feed: a drag or a fling scrolls it, a tap on a story selects it (ui-lib ListView,
-/// as the Wi-Fi list) and returns its row.
-fn on_news(d: &mut Dashboard, node: &str, gesture: Gesture) -> Option<usize> {
-    let row = node.strip_prefix("#news/list/").and_then(|r| r.parse().ok());
-    let ListEvent::Chosen(row) = d.news.on(row, gesture, Instant::now())?;
-    d.news.select(Some(row));
-    log::info!("smarthome: news story {row} chosen");
-    Some(row)
 }
 
 /// The dashboard's controls; a control of a device returns the command it means.

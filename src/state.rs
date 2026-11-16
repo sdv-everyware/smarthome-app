@@ -25,6 +25,7 @@ use everyware_ui::slider::Slider;
 use everyware_ui::tabs::Tabs;
 use everyware_ui::toggle::Toggle;
 use crate::devices::{DeviceId, DeviceView, Devices};
+use everyware_catalog::calendar::Agenda;
 use everyware_catalog::weather::Weather;
 use crate::clock::Clock;
 use everyware_catalog::wifi::{WifiNetwork, WifiSecurity, WifiState};
@@ -41,15 +42,15 @@ pub struct State {
     pub devices: Devices,
     /// The sheet of a device (#device), opened from its tile's header.
     pub device: DeviceSheet,
-    /// The panel (#panel, an instance of the library's #sheet): the browser with a title bar,
-    /// opened by a news story. Its layout is PANEL_LAYOUT (State::new).
+    /// The panel (#panel, an instance of the library's #sheet): the browser with a title bar.
+    /// Nothing on the dashboard opens it. Its layout is PANEL_LAYOUT (State::new).
     pub panel: Sheet,
     /// The settings (#prefs, the library's #sheet at the right edge), opened by Settings.
     pub prefs: PrefsSheet,
     /// What the panel's browser shows (browser.rs).
     pub browser: BrowserPanel,
-    /// The pages of the news feed's stories, in the list's order (a tap opens one).
-    pub stories: Vec<crate::browser::Page>,
+    /// The agenda in the dashboard's right column (#agenda, agenda.rs).
+    pub agenda: AgendaCard,
     /// The design's sizes (ui-lib design.rs): a dialog's card is as high as its content.
     pub sizes: Sizes,
     /// The outdoor weather from the weather bundle (screen_binder.rs); None until the first
@@ -73,7 +74,7 @@ impl State {
         let prefs = PrefsSheet { about: about(), timezone: system_time_zone(), ..Default::default() };
         let heights = ListHeights::of(&sizes);
         let mut state = State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
-        state.dash.news = crate::news::empty(heights.news);
+        state.agenda = AgendaCard::new(heights.agenda);
         state.prefs.build_zones(heights.zones);
         state
     }
@@ -84,8 +85,8 @@ impl State {
 /// code types no height. A slot the design lacks gives no height (a warning in the log).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ListHeights {
-    /// The news feed (#news/list, on the dashboard).
-    pub news: f32,
+    /// The agenda (#agenda/list, on the dashboard).
+    pub agenda: f32,
     /// The Wi-Fi networks (#wifi/networks, in #wifi-content step=networks).
     pub wifi: f32,
     /// The device sheet's two lists (#device/state-list, #device/info-list, in #device-content).
@@ -106,7 +107,7 @@ impl ListHeights {
             }
         };
         ListHeights {
-            news: height("#news/list", sizes.frame("#news/list")),
+            agenda: height("#agenda/list", sizes.frame("#agenda/list")),
             wifi: height("#wifi/networks", sizes.part("#wifi-content", "step=networks", "#wifi/networks")),
             device_state: height("#device/state-list", sizes.part("#device-content", "state=default", "#device/state-list")),
             device_info: height("#device/info-list", sizes.part("#device-content", "state=default", "#device/info-list")),
@@ -127,7 +128,7 @@ pub const SCREEN: (f32, f32) = (1920.0, 1080.0);
 pub const WIFI_LAYOUT: Layout = Layout::Dialog;
 pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
-/// The settings' layout: a panel at the right edge, as the news panel.
+/// The settings' layout: a panel at the right edge, as the browser's panel.
 pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
 /// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
@@ -343,8 +344,6 @@ pub struct Dashboard {
     pub door_details: IconButton,
     pub settings: IconButton,
     pub talk: Button,
-    /// The right column: the news feed, a scrolling list (news.rs).
-    pub news: ListView,
 }
 
 /// The setpoint's range in °C.
@@ -369,7 +368,6 @@ impl Default for Dashboard {
             door_details: IconButton::new(IconButtonKind::Tonal, Icon::ChevronRight),
             settings: IconButton::new(IconButtonKind::Tonal, Icon::Settings),
             talk: Button::new(ButtonKind::Primary, "Talk").compact(),
-            news: crate::news::empty(0.0),
         }
     }
 }
@@ -701,15 +699,6 @@ impl Default for BrowserPanel {
 pub const PAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl BrowserPanel {
-    /// A page was asked for: the loader shows and sweeps, the browser stays hidden.
-    pub fn loading(&mut self, page: crate::browser::Page, now: std::time::Instant) {
-        self.page = Some(page);
-        for s in &mut self.skeletons {
-            s.stop();
-            s.start(now);
-        }
-    }
-
     /// The page shows (Cog committed it, finished, failed, or the loader gave up): the loader
     /// fades out and the browser's zone comes in.
     pub fn shown(&mut self) {
@@ -735,6 +724,105 @@ impl BrowserPanel {
             Some(page) => page.title.clone(),
             None => String::new(),
         }
+    }
+}
+
+/// The agenda (#agenda, agenda.rs): the calendar bundle's last agenda and its rows in the list,
+/// made for the time zone, the clock's format and the minute they show; the address whose QR
+/// code is the picture of the card that links the calendar.
+#[derive(Debug)]
+pub struct AgendaCard {
+    /// None until the first agenda came.
+    pub agenda: Option<Agenda>,
+    pub list: ListView,
+    /// The zone of the rows: its id (the settings') and the zone from the device's tzdata, read
+    /// again when the id changes.
+    zone: Option<(String, jiff::tz::TimeZone)>,
+    /// The clock's format and the minute (Unix time / 60) of the rows: at the next minute they
+    /// are made again (the day changes at midnight, an event ends).
+    hour24: bool,
+    minute: i64,
+    /// The address whose QR code is registered (agenda::QR_KEY); empty: none.
+    qr: String,
+}
+
+impl Default for AgendaCard {
+    fn default() -> Self {
+        AgendaCard::new(0.0)
+    }
+}
+
+impl AgendaCard {
+    /// No agenda yet, the list `height` high (the design's #agenda/list).
+    pub fn new(height: f32) -> Self {
+        AgendaCard {
+            agenda: None,
+            list: ListView::new([], height, crate::agenda::ROW_PITCH),
+            zone: None,
+            hour24: true,
+            minute: 0,
+            qr: String::new(),
+        }
+    }
+
+    /// A new agenda from the calendar bundle: its rows, and the QR code of its setup address
+    /// while it has one.
+    pub fn set(&mut self, agenda: Agenda, zone: &str, hour24: bool) {
+        self.show_qr(crate::agenda::link_card(Some(&agenda), true).and_then(|card| card.qr));
+        self.agenda = Some(agenda);
+        self.refresh(zone, hour24);
+    }
+
+    /// After every action: the rows follow a new minute, another zone or the other clock.
+    pub fn follow(&mut self, zone: &str, hour24: bool) {
+        let minute = jiff::Timestamp::now().as_second().div_euclid(60);
+        let same_zone = self.zone.as_ref().is_some_and(|(id, _)| id == zone);
+        if !same_zone || hour24 != self.hour24 || minute != self.minute {
+            self.refresh(zone, hour24);
+        }
+    }
+
+    /// The rows for now; the list is set only when they changed (harry builds the rows of a list
+    /// that is set again).
+    fn refresh(&mut self, zone: &str, hour24: bool) {
+        let now = jiff::Timestamp::now();
+        if self.zone.as_ref().is_none_or(|(id, _)| id != zone) {
+            self.zone = Some((zone.to_string(), crate::zones::time_zone(zone)));
+        }
+        (self.hour24, self.minute) = (hour24, now.as_second().div_euclid(60));
+        let (Some(agenda), Some((_, tz))) = (&self.agenda, &self.zone) else { return };
+        let rows = crate::agenda::rows(agenda, now, tz, hour24);
+        if rows.as_slice() != self.list.rows() {
+            self.list.set_rows(rows);
+        }
+    }
+
+    /// Makes the QR code of `url` the card's picture, once per address; none frees it. The
+    /// address carries a one-time token: it is not logged.
+    fn show_qr(&mut self, url: Option<String>) {
+        use crate::agenda::{qr_rgba, QR_KEY, QR_SIDE};
+        match url {
+            Some(url) if url == self.qr => {}
+            Some(url) => match qr_rgba(&url, QR_SIDE).map(|rgba| everyware_ui::images::register_rgba(QR_KEY, rgba, QR_SIDE, QR_SIDE)) {
+                Some(Ok(())) => self.qr = url,
+                Some(Err(err)) => log::warn!("smarthome: the agenda's QR code: {err}"),
+                None => {
+                    log::warn!("smarthome: the agenda's setup address ({} bytes) does not fit a QR code", url.len());
+                    everyware_ui::images::unregister(QR_KEY);
+                    self.qr.clear();
+                }
+            },
+            None if !self.qr.is_empty() => {
+                everyware_ui::images::unregister(QR_KEY);
+                self.qr.clear();
+            }
+            None => {}
+        }
+    }
+
+    /// The QR code's picture while there is one.
+    pub fn qr_picture(&self) -> Option<customizations::ImageContentData> {
+        if self.qr.is_empty() { None } else { everyware_ui::images::get(crate::agenda::QR_KEY) }
     }
 }
 

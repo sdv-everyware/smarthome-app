@@ -24,8 +24,6 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         // dashboard: each control in its slot
         let d = &state.dash;
         model.presence = slot("#status/presence", &d.presence);
-        model.news = list("#news/list", &d.news);
-        model.news_scrollbar = scrollbar("#news/scrollbar", &d.news);
         model.wifi_indicator = slot("#status/wifi", &d.wifi);
         model.climate_minus = slot("#climate/minus", &d.temp_minus);
         model.climate_plus = slot("#climate/plus", &d.temp_plus);
@@ -54,6 +52,18 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.automations = screen(2);
 
         present_weather(model, state.weather.as_ref(), state.house_link, state.prefs.units.value() == "°F");
+
+        // the agenda (agenda.rs): the days' rows and their scrollbar; while no calendar is linked
+        // the card over them says so, with the setup page's QR code when there is one
+        let agenda = &state.agenda;
+        model.agenda = list("#agenda/list", &agenda.list);
+        model.agenda_scrollbar = scrollbar("#agenda/scrollbar", &agenda.list);
+        let card = crate::agenda::link_card(agenda.agenda.as_ref(), state.house_link);
+        model.agenda_link = Meter::new(if card.is_some() { 100.0 } else { 0.0 }, None);
+        model.agenda_qr = card.as_ref().and_then(|c| c.qr.as_ref()).and_then(|_| agenda.qr_picture());
+        let card = card.unwrap_or(crate::agenda::LinkCard { title: String::new(), hint: String::new(), qr: None });
+        model.agenda_link_title = card.title;
+        model.agenda_link_hint = card.hint;
 
         // while the keyboard dock is open the dialogs centre in the screen above it
         let free_height = if state.osk.open() { SCREEN.1 - KEYBOARD_DOCK_H } else { SCREEN.1 };

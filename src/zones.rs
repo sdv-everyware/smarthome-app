@@ -95,6 +95,22 @@ fn next_change<'a>(zones: impl Iterator<Item = &'a TimeZone>, now: Timestamp) ->
     zones.filter_map(|tz| tz.following(now).next()).map(|t| t.timestamp()).min()
 }
 
+/// The zone `id` from the device's tzdata; UTC when it has no tzdata or not that zone (a warning
+/// in the log).
+pub fn time_zone(id: &str) -> TimeZone {
+    match database().map(|db| db.get(id)) {
+        Some(Ok(tz)) => tz,
+        Some(Err(e)) => {
+            log::warn!("smarthome: time zone {id} not in tzdata ({e}): UTC");
+            TimeZone::UTC
+        }
+        None => {
+            log::warn!("smarthome: no tzdata in {TZDATA:?}: UTC");
+            TimeZone::UTC
+        }
+    }
+}
+
 /// The time zone database of the device, if it has one.
 fn database() -> Option<TimeZoneDatabase> {
     TZDATA.iter().find_map(|p| TimeZoneDatabase::from_concatenated_path(p).ok())

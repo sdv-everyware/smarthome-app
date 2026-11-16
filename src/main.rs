@@ -31,12 +31,12 @@ use std::thread;
 use std::time::Duration;
 
 mod actions;
+mod agenda;
 mod browser;
 mod clock;
 mod config;
 mod devices;
 mod screen_binder;
-mod news;
 
 mod presenter;
 mod resource_loader;

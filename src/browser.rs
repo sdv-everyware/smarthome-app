@@ -1,7 +1,7 @@
 //! The panel's browser: Cog in the Debian root (vendor/sdv-everyware/everyware docs/project/
 //! browser.md), a Wayland client of this app shown in #panel/browser (ui_model.rs
-//! ZONE_BROWSER_TAG). Experimental and off by default (config::browser): with it, a tap on a news
-//! story opens its page there.
+//! ZONE_BROWSER_TAG). Experimental and off by default (config::browser); nothing on the
+//! dashboard opens a page in it.
 //!
 //! The page goes to the browser as one line in a FIFO; a relay inside the root (uid browser,
 //! run-browser-rb3.sh) reads it and runs `cogctl open`, which reaches Cog over a D-Bus session
@@ -12,7 +12,7 @@
 //!   (root, writes)                 (0660 root:browser)       (uid browser, D-Bus in the root)
 //! ```
 //!
-//! The URL comes from the news bundle, that is from the web: only http and https reach the
+//! A URL comes from the web: only http and https reach the
 //! FIFO (and about:blank, sent by the app itself), no control characters or spaces (a line
 //! is a message), at most MAX_URL bytes (one write below PIPE_BUF is atomic). The relay
 //! checks the scheme again.
@@ -46,19 +46,6 @@ const MAX_URL: usize = 2048;
 pub struct Page {
     pub title: String,
     pub url: String,
-}
-
-impl Page {
-    /// A news story's page: its article, or its discussion on Hacker News when it has no link
-    /// (Ask HN).
-    pub fn of(story: &everyware_catalog::news::NewsStory) -> Page {
-        let url = if story.url.is_empty() {
-            format!("https://news.ycombinator.com/item?id={}", story.id)
-        } else {
-            story.url.clone()
-        };
-        Page { title: story.title.clone(), url }
-    }
 }
 
 /// An address the browser may get from outside: http or https, one line, not too long.

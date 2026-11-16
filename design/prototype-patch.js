@@ -175,10 +175,7 @@ module.exports = function patch(msg, helpers) {
   if (!settings) throw new Error('#settings not found: run dashboard-patch.js first');
   onTap(settings, openPanel(prefs.overlay));
   onTap(hotspot(prefs.overlay, prefsContent, '#prefs/close', 'close'), close());
-  // a news story opens its page in the panel's browser; close at the title bar
-  const news = nodes.find(n => n.name === '#news/list');
-  if (!news) throw new Error('#news/list not found: run dashboard-patch.js first');
-  onTap(news, openPanel(panel.overlay));
+  // the panel's browser: close at the title bar (nothing on the dashboard opens it)
   onTap(hotspot(panel.overlay, panelContent, '#panel/close', 'close'), close());
 
   // ---- the tabs as screens: the header and the bottom bar copied over the root's background,
@@ -226,10 +223,12 @@ module.exports = function patch(msg, helpers) {
   const ov = screens[0].f;
   onTap(within(screens[0].head, '#status/wifi'), openOverlay(nets.overlay, nets.from));
   for (const d of DEVICES) onTap(within(ov, d.header), openOverlay(deviceOverlay[d.name]));
-  // and the news: a story opens its page in the panel (Play starts here, not in the root)
-  const ovNews = within(ov, '#news/list');
-  if (!ovNews) throw new Error('#news/list not in the Overview copy');
-  onTap(ovNews, openPanel(panel.overlay));
+  // The agenda while no calendar is linked: the column with its link card shown (on the screen
+  // the app shows it, at opacity 0 in the root), right of the screens
+  const agenda = under(root, 'Agenda');
+  const linkFrame = frame(page1, 'Agenda · connect', sx, belowY, agenda.size.x + 96, agenda.size.y + 96, { fillPaints: root.fillPaints, frameMaskDisabled: false });
+  const agendaCopy = copy(agenda, linkFrame, 48, 48);
+  under(agendaCopy, '#agenda/link').opacity = 1;
   // Rooms: the Bedroom's tiles open their device (the light the Bedroom sheet, the climate the
   // thermostat's); the Wi-Fi button too
   onTap(within(screens[1].head, '#status/wifi'), openOverlay(nets.overlay, nets.from));
@@ -242,7 +241,7 @@ module.exports = function patch(msg, helpers) {
 
   // the flow starts at the Overview frame
   delete root.prototypeStartingPoint;
-  ov.prototypeStartingPoint = { name: 'Smart Home', description: 'Tap a tab, the Wi-Fi button, a tile header or a news story (Overview), or a device tile (Rooms)', position: '!' };
+  ov.prototypeStartingPoint = { name: 'Smart Home', description: 'Tap a tab, the Wi-Fi button or a tile header (Overview), or a device tile (Rooms)', position: '!' };
   log(`added ${A.count()} nodes: ${SCREENS.length} screen frames and ${3 + DEVICES.length} overlay frames on Page 1, ${ilocal} taps (tabs, Wi-Fi, tile headers, device tiles, hotspots)`);
   return msg;
 };

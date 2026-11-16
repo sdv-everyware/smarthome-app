@@ -16,7 +16,7 @@ use customizations::render_customizations::List;
 use customizations::AnimationOverride;
 use everyware_ui::{FollowOpacityCustomizer, FollowPositionCustomizer, Meter, Position, ScreenCustomizer, ScreenView, Slot, SlotCustomizer, TapTarget, TapTargetCustomizer, Variant};
 use customizations::render_customizations::RenderCustomization;
-use customizations::{CustomizerOutput, ExternalImageContent};
+use customizations::{CustomizerOutput, ExternalImageContent, ImageContentData};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -73,6 +73,23 @@ fn zone(tag: &str, enabled: bool) -> CustomizerOutput {
     }
 }
 
+/// A picture the app made for a plain frame of the design (the agenda's QR code), or none.
+pub type Picture = Option<ImageContentData>;
+
+/// A picture on its frame, or without one the frame out of its column (display gone: the
+/// texts under it move up). harry draws a picture on a plain frame only.
+#[derive(Clone, Debug, Default)]
+pub struct PictureCustomizer {}
+
+impl Customizer<Picture> for PictureCustomizer {
+    fn format(&mut self, picture: Picture) -> CustomizerOutput {
+        match picture {
+            Some(image) => image.into(),
+            None => CustomizerOutput::new_finished(RenderCustomization::Display(DisplayState::Gone)),
+        }
+    }
+}
+
 /// First value of a UI model field, before the presenter runs.
 trait Initial {
     fn initial() -> Self;
@@ -109,6 +126,12 @@ impl Initial for AnimationOverride {
 impl Initial for TapTarget {
     fn initial() -> Self {
         TapTarget(false)
+    }
+}
+
+impl Initial for Picture {
+    fn initial() -> Self {
+        None
     }
 }
 
@@ -224,9 +247,15 @@ ui_model! {
     // the networks step: the list of #network rows and Rescan; the chosen name on the password card
     // interactive: a drag may start between the rows or below the last one
     wifi_networks: Slot = "#wifi/networks" interactive ["SlotCustomizer"];
-    // the right column: the news feed and its scrollbar (news.rs)
-    news: Slot = "#news/list" interactive ["SlotCustomizer"];
-    news_scrollbar: Slot = "#news/scrollbar" ["SlotCustomizer"];
+    // the right column: the agenda (agenda.rs), its rows (a drag may start between them) and
+    // their scrollbar; over them the card that links the calendar, shown while none is linked
+    // (opacity 0 in the design), its QR code a picture the app makes
+    agenda: Slot = "#agenda/list" interactive ["SlotCustomizer"];
+    agenda_scrollbar: Slot = "#agenda/scrollbar" ["SlotCustomizer"];
+    agenda_link: Meter = "#agenda/link" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    agenda_qr: Picture = "#agenda/qr" ["PictureCustomizer"];
+    agenda_link_title: String = "#agenda/link-title";
+    agenda_link_hint: String = "#agenda/link-hint";
     wifi_scrollbar: Slot = "#wifi/scrollbar" ["SlotCustomizer"];
     wifi_rescan: Slot = "#wifi/rescan" ["SlotCustomizer"];
     wifi_ssid: String = "#wifi/ssid";
