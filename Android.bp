@@ -69,11 +69,12 @@ rust_binary {
     },
 }
 
-// The tests of the time zone list on the host (zones.rs needs only jiff and log):
-// m smarthome_app_zones_test, then out_rb3/host/linux-x86/nativetest64/smarthome_app_zones_test/.
+// The tests of the app's modules that need no device (src/host_tests.rs: the time zone list, the
+// zone planes), on the host: m smarthome_app_host_test, then
+// out_rb3/host/linux-x86/nativetest64/smarthome_app_host_test/.
 rust_test_host {
-    name: "smarthome_app_zones_test",
-    crate_root: "src/zones.rs",
+    name: "smarthome_app_host_test",
+    crate_root: "src/host_tests.rs",
     rustlibs: [
         "libjiff",
         "liblog_rust",

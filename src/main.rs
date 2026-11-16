@@ -44,6 +44,7 @@ mod state;
 mod ui_event_listener;
 mod ui_model;
 mod weather;
+mod zone_plane;
 mod zones;
 
 fn main() {
@@ -58,7 +59,15 @@ fn main() {
     };
     log::set_max_level(level);
 
-    let args = config::get_commandline_args();
+    let mut args = config::get_commandline_args();
+    // A board whose display has no planes for zones (Cuttlefish's virtio-gpu has no zpos) says
+    // so with a property; one APEX serves every board, so its init script passes --zone-plane.
+    if args.zone_plane && !zone_plane::on(args.zone_plane, &crate::state::property(zone_plane::PROPERTY)) {
+        log::info!("smarthome: zone planes off ({} is false)", zone_plane::PROPERTY);
+        args.zone_plane = false;
+        // a zone is then drawn by the dashboard, still only when its client has a new frame
+        args.zone_redraw = config::ZoneRedraw::Frames;
+    }
     // Before the display config: it raises the dashboard's plane for zone planes.
     config::set_zone_plane(args.zone_plane);
     let displays = config::get_display_config();

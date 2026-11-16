@@ -30,6 +30,8 @@ are: a product signs its APEX with a key of its own, never with this one.
 
 Options: `--wayland-zones` serves Wayland clients and shows them in the zones of the design (the
 camera tile, the browser panel when the image has the experimental browser) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
-frame rate; `--zone-plane` puts a client on a display plane of its own; `--zone-redraw
+frame rate; `--zone-plane` puts a client on a display plane of its own (a board whose display
+has no planes for that, such as Cuttlefish, turns it off with `ro.vendor.everyware.zone_plane=false`;
+the dashboard then draws the zone, still only on a new client frame); `--zone-redraw
 timer|frames` picks what redraws the dashboard for a zone. `--touch-size WxH` maps the touch
 screen's units to the display. `SMARTHOME_LOG=debug|trace` for a diagnostic run.
