@@ -69,6 +69,20 @@ rust_binary {
     },
 }
 
+// The tests of the time zone list on the host (zones.rs needs only jiff and log):
+// m smarthome_app_zones_test, then out_rb3/host/linux-x86/nativetest64/smarthome_app_zones_test/.
+rust_test_host {
+    name: "smarthome_app_zones_test",
+    crate_root: "src/zones.rs",
+    rustlibs: [
+        "libjiff",
+        "liblog_rust",
+    ],
+    test_options: {
+        unit_test: true,
+    },
+}
+
 // The fetched design, for ui-lib's contract test (everyware_ui_test): the parts its
 // components set must be in the Figma library.
 filegroup {
