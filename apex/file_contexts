@@ -1,5 +1,5 @@
 (/.*)?                                      u:object_r:vendor_file:s0
-# HAR's UI process domain (device/google/sdv/sdv_media_base/har_sample/sepolicy/vendor/harplatform.te)
+# HAR's UI process domain (packages/services/display_safety/service/product/sepolicy/harplatform.te)
 /bin/smarthome_app                          u:object_r:vendor_harplatform_exec:s0
 /lib(64)?(/.*)?                             u:object_r:vendor_harplatform_lib_file:s0
 /etc/com.everyware.smarthome.init.rc        u:object_r:vendor_configs_file:s0
