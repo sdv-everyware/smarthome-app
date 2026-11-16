@@ -29,6 +29,8 @@ rust_binary {
         "libharry",
         "libharry_app_platform_specific",
         "libharry_app_utils",
+        // the time zones' offsets from the device's tzdata (zones.rs)
+        "libjiff",
         // localtime_r: the local time in the system's time zone (clock.rs)
         "liblibc",
         "liblog_rust",

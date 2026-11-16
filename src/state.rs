@@ -9,7 +9,7 @@ use everyware_ui::form::Form;
 use everyware_ui::input_field::InputField;
 use everyware_ui::list_item::{ListItem, ListItemKind, ListItemLines, ListItemSize};
 use everyware_ui::list_view::ListView;
-use everyware_ui::design::Sizes;
+use everyware_ui::design::{Frame, Sizes};
 use everyware_ui::sheet::{Edge, Layout, Sheet};
 use everyware_ui::pressable::Pressable;
 use protobuf::MessageField;
@@ -20,7 +20,7 @@ use user_preferences_api::settings_group::SettingsGroupId;
 use user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest;
 use everyware_ui::segmented::Segmented;
 use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
-use everyware_ui::screens::Effect;
+use everyware_ui::screens::{Effect, Pages};
 use everyware_ui::slider::Slider;
 use everyware_ui::tabs::Tabs;
 use everyware_ui::toggle::Toggle;
@@ -62,6 +62,8 @@ pub struct State {
     pub matter_pending: [Option<std::time::Instant>; 4],
     /// The header's tabs (#home/tabs): which screen the panel shows (SCREENS).
     pub tabs: Tabs,
+    /// The lists' heights, from the design.
+    pub heights: ListHeights,
 }
 
 impl State {
@@ -69,7 +71,46 @@ impl State {
     /// design's sizes.
     pub fn new(sizes: Sizes) -> Self {
         let prefs = PrefsSheet { about: about(), timezone: system_time_zone(), ..Default::default() };
-        State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() }
+        let heights = ListHeights::of(&sizes);
+        let mut state = State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
+        state.dash.news = crate::news::empty(heights.news);
+        state
+    }
+}
+
+/// The lists' heights as the design draws their slots (ui-lib Sizes): a list is as high as its
+/// slot, so a list the designer makes higher scrolls and shows its scrollbar that high, and the
+/// code types no height. A slot the design lacks gives no height (a warning in the log).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ListHeights {
+    /// The news feed (#news/list, on the dashboard).
+    pub news: f32,
+    /// The Wi-Fi networks (#wifi/networks, in #wifi-content step=networks).
+    pub wifi: f32,
+    /// The device sheet's two lists (#device/state-list, #device/info-list, in #device-content).
+    pub device_state: f32,
+    pub device_info: f32,
+    /// The time zones (#prefs/zones, in #prefs-content).
+    pub zones: f32,
+}
+
+impl ListHeights {
+    /// The heights of the design `sizes` holds.
+    pub fn of(sizes: &Sizes) -> Self {
+        let height = |name: &str, frame: Option<Frame>| match frame {
+            Some(f) => f.height,
+            None => {
+                log::warn!("smarthome: the design has no {name}: the list has no height");
+                0.0
+            }
+        };
+        ListHeights {
+            news: height("#news/list", sizes.frame("#news/list")),
+            wifi: height("#wifi/networks", sizes.part("#wifi-content", "step=networks", "#wifi/networks")),
+            device_state: height("#device/state-list", sizes.part("#device-content", "state=default", "#device/state-list")),
+            device_info: height("#device/info-list", sizes.part("#device-content", "state=default", "#device/info-list")),
+            zones: height("#prefs/zones", sizes.part("#prefs-content", "state=default", "#prefs/zones")),
+        }
     }
 }
 
@@ -98,17 +139,44 @@ pub const TIMEZONE: &str = "timezone";
 pub const HOUR_CYCLE_24: &str = "hour_cycle_24";
 pub const TEMPERATURE: &str = "temperature";
 
+/// The time zone list's rows (design/prefs-patch.js #prefs/zones): 72 high, 8 between them.
+const ZONE_PITCH: f32 = 80.0;
+/// Rows above the current zone when the list opens, so it shows in the middle of the list.
+const ZONES_ABOVE: usize = 4;
+
+/// What the settings sheet shows: its pages in the design's order (#prefs/page-main,
+/// #prefs/page-timezone).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrefsStep {
+    /// The settings.
+    #[default]
+    Main = 0,
+    /// The time zone list.
+    TimeZone = 1,
+}
+
+/// How the settings' pages change: one page deeper slides in from the right, Back slides it
+/// out (Android's Settings, Material 3's shared axis).
+pub const PREFS_EFFECT: Effect = Effect::Slide;
+
 /// The settings sheet (#prefs, design/prefs-patch.js): the time zone, the clock's format, the
 /// weather's unit, the way to the Wi-Fi sheet and what the panel is. The values the system
 /// applies are the System bundle's (SDV user_preferences); the sheet shows the ones in force.
 #[derive(Debug)]
 pub struct PrefsSheet {
     pub sheet: Sheet,
+    /// Which page shows and which showed before (PrefsStep's order).
+    pub pages: Pages,
     pub close: IconButton,
     /// The time zone's row (#prefs/timezone) and the name in force (#prefs/timezone/value): the
-    /// System bundle's, the system's until its settings came; the row changes nothing yet.
+    /// System bundle's, the system's until its settings came; the row opens the time zone list.
     pub timezone_row: Pressable,
     pub timezone: String,
+    /// The time zone list (step=timezone): back to the settings, the zones (zones.rs, read when
+    /// the list first opens) and their rows, the zone in force selected.
+    pub back: Button,
+    pub zones: Vec<crate::zones::Zone>,
+    pub zone_list: ListView,
     /// The clock shows 24 hours (#prefs/hour24).
     pub hour24: Toggle,
     /// The weather's unit (#prefs/units): °C or °F, applied by the presenter.
@@ -126,9 +194,13 @@ impl Default for PrefsSheet {
     fn default() -> Self {
         PrefsSheet {
             sheet: Sheet::new(PREFS_LAYOUT),
+            pages: Pages::default(),
             close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
             timezone_row: Pressable::default(),
             timezone: String::new(),
+            back: Button::new(ButtonKind::Ghost, "‹ Back").compact(),
+            zones: Vec::new(),
+            zone_list: ListView::new([], 0.0, ZONE_PITCH),
             hour24: Toggle::new(true),
             units: Segmented::new(["°C", "°F"]),
             wifi_row: Pressable::default(),
@@ -144,7 +216,39 @@ impl PrefsSheet {
         if !self.groups.contains_key("time") {
             self.timezone = system_time_zone();
         }
+        self.pages.reset();
         self.sheet.open();
+    }
+
+    /// The page that shows.
+    pub fn step(&self) -> PrefsStep {
+        if self.pages.selected == PrefsStep::TimeZone as usize { PrefsStep::TimeZone } else { PrefsStep::Main }
+    }
+
+    /// Slides to a page.
+    pub fn show(&mut self, step: PrefsStep) {
+        self.pages.show(step as usize);
+    }
+
+    /// Shows the time zone list, `height` high (the design's), the zone in force selected and
+    /// in view; a zone the list lacks is not selected, the list opens on its offset
+    /// (zones::opening_row). The offsets are taken now, so a list opened after a change of
+    /// daylight saving time shows the new ones.
+    pub fn open_zones(&mut self, height: f32) {
+        self.zones = crate::zones::zones();
+        let rows = self.zones.iter().map(|z| {
+            ListItem::new(ListItemKind::Plain, z.place.clone(), z.detail.clone()).lines(ListItemLines::Two).size(ListItemSize::Panel)
+        });
+        self.zone_list = ListView::new(rows, height, ZONE_PITCH);
+        let (selected, row) = crate::zones::opening_row(&self.zones, &self.timezone);
+        self.zone_list.select(selected);
+        self.zone_list.scroll_to(row.saturating_sub(ZONES_ABOVE));
+        self.show(PrefsStep::TimeZone);
+    }
+
+    /// The zone of a row of the list.
+    pub fn zone_at(&self, row: usize) -> Option<&'static str> {
+        self.zones.get(row).map(|z| z.id)
     }
 
     /// A settings group with its values in force: the sheet shows them, a switch the user just
@@ -230,7 +334,7 @@ impl Default for Dashboard {
             door_details: IconButton::new(IconButtonKind::Tonal, Icon::ChevronRight),
             settings: IconButton::new(IconButtonKind::Tonal, Icon::Settings),
             talk: Button::new(ButtonKind::Primary, "Talk").compact(),
-            news: crate::news::empty(),
+            news: crate::news::empty(0.0),
         }
     }
 }
@@ -373,10 +477,8 @@ impl Network {
     }
 }
 
-/// Row height and gap of the list in the design (#list-item 72 high, 8 between), and the
-/// slot's height (6 rows).
+/// Row height and gap of the list in the design (#list-item 72 high, 8 between).
 const ROW_PITCH: f32 = 72.0 + 8.0;
-const LIST_H: f32 = 6.0 * 72.0 + 5.0 * 8.0;
 
 
 /// The password field's index in the form.
@@ -387,8 +489,8 @@ impl WifiSheet {
     /// up once the password field is tapped.
     /// The sheet as the Wi-Fi indicator opens it, with the networks known so far; a scan is
     /// asked for by the caller.
-    pub fn opened(networks: Vec<Network>, state: Option<WifiState>) -> Self {
-        let mut sheet = WifiSheet::default();
+    pub fn opened(networks: Vec<Network>, state: Option<WifiState>, list_h: f32) -> Self {
+        let mut sheet = WifiSheet { list: ListView::new([], list_h, ROW_PITCH), ..WifiSheet::default() };
         sheet.set_networks(networks);
         sheet.state = state;
         sheet.form.open();
@@ -450,7 +552,7 @@ impl Default for WifiSheet {
             step: Step::Networks,
             networks: Vec::new(),
             state: None,
-            list: ListView::new([], LIST_H, ROW_PITCH),
+            list: ListView::new([], 0.0, ROW_PITCH),
             connect: Button::new(ButtonKind::Primary, "Connect"),
             cancel: Button::new(ButtonKind::Secondary, "Cancel"),
             rescan: Button::new(ButtonKind::Secondary, "Rescan"),
@@ -462,10 +564,8 @@ impl Default for WifiSheet {
 pub const STATUS_ENTER: &str = "Enter the password of the network";
 
 
-/// The rows of the sheet's two lists (#list-item kind=text, column: 72 high, 8 between) and
-/// the lists' height (6 rows).
+/// The rows of the sheet's two lists (#list-item kind=text, column: 72 high, 8 between).
 const DEVICE_ROW_PITCH: f32 = 72.0 + 8.0;
-const DEVICE_LIST_H: f32 = 6.0 * 72.0 + 5.0 * 8.0;
 
 /// The sheet of a device (#device, the library's #sheet with #device-content in it) over the
 /// dashboard: the device's state large, its State and Device lists; "Show more" adds the
@@ -494,8 +594,8 @@ impl Default for DeviceSheet {
             device: DeviceId::Climate,
             view: DeviceView::default(),
             diagnostics: false,
-            state_list: ListView::new([], DEVICE_LIST_H, DEVICE_ROW_PITCH),
-            info_list: ListView::new([], DEVICE_LIST_H, DEVICE_ROW_PITCH),
+            state_list: ListView::new([], 0.0, DEVICE_ROW_PITCH),
+            info_list: ListView::new([], 0.0, DEVICE_ROW_PITCH),
             close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
             more: Button::new(ButtonKind::Ghost, "Show more"),
         }
@@ -508,10 +608,17 @@ fn value_row((label, value): &(String, String)) -> ListItem {
 }
 
 impl DeviceSheet {
-    /// Opens the sheet of `device`, from the top of its lists, without the diagnostics.
-    pub fn open(&mut self, device: DeviceId, devices: &Devices, dash: &Dashboard) {
+    /// Opens the sheet of `device`, from the top of its lists (as high as `heights` says),
+    /// without the diagnostics.
+    pub fn open(&mut self, device: DeviceId, devices: &Devices, dash: &Dashboard, heights: &ListHeights) {
         let container = self.container;
-        *self = DeviceSheet { container, device, ..DeviceSheet::default() };
+        *self = DeviceSheet {
+            container,
+            device,
+            state_list: ListView::new([], heights.device_state, DEVICE_ROW_PITCH),
+            info_list: ListView::new([], heights.device_info, DEVICE_ROW_PITCH),
+            ..DeviceSheet::default()
+        };
         self.refresh(devices, dash);
         self.container.open();
     }

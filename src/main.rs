@@ -44,6 +44,7 @@ mod state;
 mod ui_event_listener;
 mod ui_model;
 mod weather;
+mod zones;
 
 fn main() {
     har_log::init_logger("smarthome-app");

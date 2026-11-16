@@ -246,9 +246,7 @@ const { C, FONT } = helpers;
   const list = frame(body, '#news/list', 0, 0, LIST_W, LIST_H, { frameMaskDisabled: false });
   const newsRow = variantOf('#list-item', 'state=default, kind=image, lines=three, size=column');
   for (let i = 0; i * ROW_PITCH < LIST_H; i++) instance(list, `#news/list/preview-${i + 1}`, 0, i * ROW_PITCH, newsRow);
-  const bar = variantOf('#scrollbar', `length=${LIST_H}`);
-  const sb = frame(body, '#news/scrollbar', LIST_W + SB_GAP, 0, SB_W, LIST_H);
-  instance(sb, '#news/scrollbar/preview', 0, 0, bar);
+  A.scrollbarSlot(body, '#news/scrollbar', LIST_W + SB_GAP, 0, LIST_H);
   log(`#news: a list ${LIST_W}x${LIST_H} (rows ${ROW_PITCH} apart) and its scrollbar in place of Scenes and home activity, which is on the Components page (Backup)`);
 
   // 6. the device sheet's targets (sheet-patch.js): a tap on a tile's header opens its device.
