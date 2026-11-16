@@ -1,6 +1,6 @@
 // prefs-patch.js: the settings of the panel, an instance of the library's #sheet
 // (components-patch.js) at the right edge with its own content component, at the kiwi level.
-// Run after panel-patch.js (build.sh), so the settings' layer is above the news panel.
+// Run after panel-patch.js (build.sh), so the settings' layer is above the browser's panel.
 // The names start with #prefs: #settings is the button at the bottom that opens it.
 //
 // Adds:

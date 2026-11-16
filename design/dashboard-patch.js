@@ -247,7 +247,11 @@ const { C, FONT } = helpers;
   A.text(backup, 'Heading', 24, 20, AG_W, 28, 'Backup: Scenes and home activity (not on the screen)', 17, FONT.semibold, C.ink);
   scenes.parentIndex = { guid: backup.guid, position: '!' };
   scenes.transform = at(24, 72);
-  A.text(agenda, 'Agenda heading', 0, 0, AG_W, HEAD_H, 'Agenda', 23, FONT.semibold, C.ink);
+  // the heading, and at its right how old the agenda is when it is not fresh (#agenda/status: the
+  // app writes it, empty while the agenda is fresh; agenda.rs status)
+  const header = frame(agenda, 'Agenda header', 0, 0, AG_W, HEAD_H);
+  A.text(header, 'Agenda heading', 0, 0, 160, HEAD_H, 'Agenda', 23, FONT.semibold, C.ink);
+  A.text(header, '#agenda/status', 160, 0, AG_W - 160 - SB_GAP - SB_W, HEAD_H, 'Last read 14:02 · no link to the house\'s data', 15, FONT.regular, C.ink2, 'RIGHT', 'CENTER', { maxLines: 1, textTruncation: 'ENDING' });
   const body = frame(agenda, 'Agenda content', 0, HEAD_H + HEAD_GAP, AG_W, LIST_H);
   const list = frame(body, '#agenda/list', 0, 0, LIST_W, LIST_H, { frameMaskDisabled: false });
   // the preview: days as the app shows them (texts and the bars' colours as overrides)

@@ -2,5 +2,6 @@
 //! m smarthome_app_host_test.
 
 pub mod agenda;
+pub mod agenda_card;
 pub mod zone_plane;
 pub mod zones;

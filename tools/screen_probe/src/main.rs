@@ -6,10 +6,12 @@
 //!
 //! Every call carries a message that does not parse, so a call the caller check lets through
 //! fails with EX_ILLEGAL_ARGUMENT and changes nothing on the screen; EX_SECURITY means the check
-//! refused it. subscribeCommands is the last call: EX_ILLEGAL_STATE means the check let the caller
-//! in (the real sink is subscribed). ACCEPTED happens only when no live sink was there: the
-//! probe's sink then dies with the probe, and the screen shows that the house's data is gone
-//! until the dashboard bundle subscribes again.
+//! refused it. The panel shows no news: publishNews and publishNewsThumbnail take a call the check
+//! lets through without reading it, so for them ACCEPTED means the check let the caller in.
+//! subscribeCommands is the last call: EX_ILLEGAL_STATE means the check let the caller in (the
+//! real sink is subscribed). There ACCEPTED happens only when no live sink was there: the probe's
+//! sink then dies with the probe, and the screen shows that the house's data is gone until the
+//! dashboard bundle subscribes again.
 
 use binder::{BinderFeatures, Interface, Strong};
 use com_everyware_screen::aidl::com::everyware::screen::ICommandSink::{BnCommandSink, ICommandSink};
@@ -35,6 +37,10 @@ impl ICommandSink for Sink {
         println!("a Matter command reached the probe's sink");
         Ok(())
     }
+    fn onSettingsChange(&self, _request: &[u8]) -> binder::Result<()> {
+        println!("a settings change reached the probe's sink");
+        Ok(())
+    }
 }
 
 fn agent() -> Strong<dyn IIdentityAgent> {
@@ -58,6 +64,7 @@ fn calls() {
     show("publishWifiResult", screen.publishWifiResult("connect", "probe", GARBAGE));
     show("publishMatterDevices", screen.publishMatterDevices(GARBAGE));
     show("publishMatterResult", screen.publishMatterResult("on-off", 1, 1, GARBAGE));
+    show("publishAgenda", screen.publishAgenda(GARBAGE));
     let sink = BnCommandSink::new_binder(Sink, BinderFeatures::default());
     show("subscribeCommands", screen.subscribeCommands(&sink));
 }

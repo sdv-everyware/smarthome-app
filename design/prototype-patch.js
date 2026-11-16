@@ -1,7 +1,7 @@
 // prototype-patch.js: the sheets for the designer, as DesignCompose does it in Figma. Run last
 // (build.sh): it uses #sheet and #keyboard-dock (components-patch.js), #wifi-content
 // (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js),
-// #prefs-content (prefs-patch.js) and the
+// #prefs-content (prefs-patch.js), #event-content (event-patch.js) and the
 // dashboard's names (dashboard-patch.js).
 //
 // On the screen the sheets are instances in their closed variant, below the screen edge; the app
@@ -13,6 +13,7 @@
 //   #status/wifi      -> Wi-Fi · networks (overlay); a tap on the list -> Wi-Fi · password + keyboard
 //   a tile's header   -> Device sheet · <device> (overlay); in Rooms a device tile, the same
 //   #settings         -> Settings · right (overlay from the right, the right half of the screen)
+//   #agenda/list      -> Event · right (an event's details, from the right)
 //   Cancel, Connect, the close button, a tap outside a card -> close
 //
 // The buttons inside a card are instances; their taps are transparent hotspot frames on top.
@@ -177,6 +178,13 @@ module.exports = function patch(msg, helpers) {
   onTap(hotspot(prefs.overlay, prefsContent, '#prefs/close', 'close'), close());
   // the panel's browser: close at the title bar (nothing on the dashboard opens it)
   onTap(hotspot(panel.overlay, panelContent, '#panel/close', 'close'), close());
+  // an agenda event's details (event-patch.js), from a tap on the agenda's list; close at the top
+  const eventContent = variantOf('#event-content', 'state=default');
+  const eventPanel = sheetOverlay('Event · right', 'right', eventContent);
+  const agendaList = nodes.find(n => n.name === '#agenda/list');
+  if (!agendaList) throw new Error('#agenda/list not found: run dashboard-patch.js first');
+  onTap(agendaList, openPanel(eventPanel.overlay));
+  onTap(hotspot(eventPanel.overlay, eventContent, '#event/close', 'close'), close());
 
   // ---- the tabs as screens: the header and the bottom bar copied over the root's background,
   // the content the Overview's (copied) or a screen set's shown variant; the header's tabs
@@ -229,6 +237,8 @@ module.exports = function patch(msg, helpers) {
   const linkFrame = frame(page1, 'Agenda · connect', sx, belowY, agenda.size.x + 96, agenda.size.y + 96, { fillPaints: root.fillPaints, frameMaskDisabled: false });
   const agendaCopy = copy(agenda, linkFrame, 48, 48);
   under(agendaCopy, '#agenda/link').opacity = 1;
+  // and the Overview's agenda opens an event (Play starts there, not in the root)
+  onTap(within(ov, '#agenda/list'), openPanel(eventPanel.overlay));
   // Rooms: the Bedroom's tiles open their device (the light the Bedroom sheet, the climate the
   // thermostat's); the Wi-Fi button too
   onTap(within(screens[1].head, '#status/wifi'), openOverlay(nets.overlay, nets.from));
@@ -241,7 +251,7 @@ module.exports = function patch(msg, helpers) {
 
   // the flow starts at the Overview frame
   delete root.prototypeStartingPoint;
-  ov.prototypeStartingPoint = { name: 'Smart Home', description: 'Tap a tab, the Wi-Fi button or a tile header (Overview), or a device tile (Rooms)', position: '!' };
+  ov.prototypeStartingPoint = { name: 'Smart Home', description: 'Tap a tab, the Wi-Fi button, a tile header or an agenda event (Overview), or a device tile (Rooms)', position: '!' };
   log(`added ${A.count()} nodes: ${SCREENS.length} screen frames and ${3 + DEVICES.length} overlay frames on Page 1, ${ilocal} taps (tabs, Wi-Fi, tile headers, device tiles, hotspots)`);
   return msg;
 };

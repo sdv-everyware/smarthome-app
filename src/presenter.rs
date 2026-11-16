@@ -4,10 +4,10 @@
 
 use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
+use customizations::render_customizations::DisplayState;
 use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
-use everyware_ui::transitions::{self, Change, ComponentKind};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
 use crate::ui_model::UiModel;
 use harry::presentation::Presenter;
@@ -53,11 +53,14 @@ impl Presenter<State, UiModel> for UiModelPresenter {
 
         present_weather(model, state.weather.as_ref(), state.house_link, state.prefs.units.value() == "°F");
 
-        // the agenda (agenda.rs): the days' rows and their scrollbar; while no calendar is linked
-        // the card over them says so, with the setup page's QR code when there is one
+        // the agenda (agenda.rs): the days' rows and their scrollbar, how old the agenda is when it is
+        // not fresh; while no calendar is linked the card over them says so, with the setup page's
+        // QR code when there is one and the house's data is linked
         let agenda = &state.agenda;
+        let now = jiff::Timestamp::now();
         model.agenda = list("#agenda/list", &agenda.list);
         model.agenda_scrollbar = scrollbar("#agenda/scrollbar", &agenda.list);
+        model.agenda_status = crate::agenda::status(agenda.agenda.as_ref(), state.house_link, now, &agenda.time_zone(), state.prefs.hour24.value);
         let card = crate::agenda::link_card(agenda.agenda.as_ref(), state.house_link);
         model.agenda_link = Meter::new(if card.is_some() { 100.0 } else { 0.0 }, None);
         model.agenda_qr = card.as_ref().and_then(|c| c.qr.as_ref()).and_then(|_| agenda.qr_picture());
@@ -106,27 +109,8 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.device_info_scrollbar = scrollbar("#device/info-list-scrollbar", &device.info_list);
         model.device_more = slot("#device/more", &device.more);
 
-        // the panel: the card from behind its edge, the scrim fading, with the sheet's transition
-        let panel = &state.panel;
-        let slide = panel.transition();
-        model.panel_card = Position::new(panel.card_position(SCREEN, free_height), slide);
-        model.panel_scrim = Meter::new(panel.scrim(), slide);
-        model.panel_scrim_taps = TapTarget(panel.is_open());
-        let browser = &state.browser;
-        model.panel_title = browser.title();
-        model.panel_close = slot("#panel/close", &browser.close);
-        // the browser's zone only once its page shows: while it loads Cog gets no frame
-        // callbacks and draws nothing, the loader stands in its place (no white flash)
-        model.browser_zone = crate::config::wayland_zones() && panel.is_open() && !browser.is_loading();
-        model.panel_loading = if browser.is_loading() {
-            Meter::new(100.0, None)
-        } else {
-            Meter::new(0.0, transitions::transition(ComponentKind::Skeleton, Change::Hide))
-        };
-        model.panel_skeleton_1 = slot("#panel/skeleton-1", &browser.skeletons[0]);
-        model.panel_skeleton_2 = slot("#panel/skeleton-2", &browser.skeletons[1]);
-        model.panel_skeleton_3 = slot("#panel/skeleton-3", &browser.skeletons[2]);
-        model.panel_skeleton_4 = slot("#panel/skeleton-4", &browser.skeletons[3]);
+        #[cfg(browser)]
+        present_browser(model, state, free_height);
 
         // the settings: as the panel, the card from behind the right edge and the scrim
         let prefs = &state.prefs;
@@ -153,6 +137,24 @@ impl Presenter<State, UiModel> for UiModelPresenter {
             _ => "Not connected".to_string(),
         };
         model.prefs_about = prefs.about.clone();
+
+        // an agenda event's panel: as the settings, the card from behind the right edge and the
+        // scrim; an empty part out of the column; the body where the finger scrolled it
+        let event = &state.agenda.event;
+        let slide = event.sheet.transition();
+        model.event_card = Position::new(event.sheet.card_position(SCREEN, free_height), slide);
+        model.event_scrim = Meter::new(event.sheet.scrim(), slide);
+        model.event_scrim_taps = TapTarget(event.is_open());
+        model.event_close = slot("#event/close", &event.close);
+        let d = &event.details;
+        let shown = |text: &str| if text.is_empty() { DisplayState::Gone } else { DisplayState::Visible };
+        model.event_title = d.title.clone();
+        model.event_when = d.when.clone();
+        (model.event_place, model.event_place_display) = (d.place.clone(), shown(&d.place));
+        (model.event_link, model.event_link_display) = (d.link.clone(), shown(&d.link));
+        (model.event_description, model.event_description_display) = (d.description.clone(), shown(&d.description));
+        let (scrolled, along) = event.body_offset(std::time::Instant::now());
+        model.event_body = Position::new((0.0, -scrolled), along);
 
         // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
         model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());
@@ -189,4 +191,31 @@ fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: b
     model.weather_t1 = label(0);
     model.weather_t2 = label(12);
     model.weather_t3 = label(23);
+}
+
+/// The browser's panel (built with the cfg browser): the card from behind its edge, the scrim
+/// fading, with the sheet's transition; the browser's zone and its loader.
+#[cfg(browser)]
+fn present_browser(model: &mut UiModel, state: &State, free_height: f32) {
+    use everyware_ui::transitions::{Change, ComponentKind};
+    let panel = &state.panel;
+    let slide = panel.transition();
+    model.panel_card = Position::new(panel.card_position(SCREEN, free_height), slide);
+    model.panel_scrim = Meter::new(panel.scrim(), slide);
+    model.panel_scrim_taps = TapTarget(panel.is_open());
+    let browser = &state.browser;
+    model.panel_title = browser.title();
+    model.panel_close = slot("#panel/close", &browser.close);
+    // the browser's zone only once its page shows: while it loads Cog gets no frame
+    // callbacks and draws nothing, the loader stands in its place (no white flash)
+    model.browser_zone = crate::config::wayland_zones() && panel.is_open() && !browser.is_loading();
+    model.panel_loading = if browser.is_loading() {
+        Meter::new(100.0, None)
+    } else {
+        Meter::new(0.0, everyware_ui::transitions::transition(ComponentKind::Skeleton, Change::Hide))
+    };
+    model.panel_skeleton_1 = slot("#panel/skeleton-1", &browser.skeletons[0]);
+    model.panel_skeleton_2 = slot("#panel/skeleton-2", &browser.skeletons[1]);
+    model.panel_skeleton_3 = slot("#panel/skeleton-3", &browser.skeletons[2]);
+    model.panel_skeleton_4 = slot("#panel/skeleton-4", &browser.skeletons[3]);
 }

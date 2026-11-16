@@ -23,8 +23,10 @@ use std::time::Duration;
 /// Zone tag of the camera tile: the content tag a Wayland client names in har_zone, not the
 /// layer's name. A harry client built for a zone binds to it (its display params, zone_tag).
 pub const ZONE_CAMERA_TAG: &str = "#zone/camera";
-/// Zone tag of the panel's browser (#panel/browser, experimental, off by default): with it every
-/// ordinary Wayland app (xdg-shell, the browser) binds to it (main.rs, BridgeConfig::xdg_default_tag).
+/// Zone tag of the panel's browser (#panel/browser, experimental, built with the cfg browser):
+/// with it every ordinary Wayland app (xdg-shell, the browser) binds to it (main.rs,
+/// BridgeConfig::xdg_default_tag).
+#[cfg(browser)]
 pub const ZONE_BROWSER_TAG: &str = "#zone/browser";
 
 /// Turns a node into a zone: every ~33 ms it re-applies ExternalImage(ZONE_CAMERA_TAG), so
@@ -43,9 +45,11 @@ impl Customizer<bool> for ZoneCustomizer {
 /// The panel's browser (#panel/browser) as a zone, ZoneCustomizer's twin for ZONE_BROWSER_TAG.
 /// The presenter turns it on only while the panel is open: without the tag in the display list
 /// the looper reports the scene hidden and the browser gets no frame callbacks (idle).
+#[cfg(browser)]
 #[derive(Clone, Debug, Default)]
 pub struct BrowserZoneCustomizer {}
 
+#[cfg(browser)]
 impl Customizer<bool> for BrowserZoneCustomizer {
     fn format(&mut self, enabled: bool) -> CustomizerOutput {
         zone(ZONE_BROWSER_TAG, enabled)
@@ -143,19 +147,20 @@ impl Initial for Slot {
 
 /// The fields as `name: type = "layer" [interactive] [["Customizer"]] [= initial];`: one line per
 /// layer, and new() gives every field its initial value (the type's, or the one given: a
-/// variant whose set has more properties than the library's `state`).
+/// variant whose set has more properties than the library's `state`). A field may have
+/// attributes before it (`#[cfg(browser)]`): they go on the field and on its initial value.
 /// The type is a single token (`tt`, not `ty`): a `ty` fragment reaches the derive macros
 /// wrapped in an invisible group, which DesignDocument does not accept as a field type.
 macro_rules! ui_model {
     (@init $ty:tt) => { <$ty as Initial>::initial() };
     (@init $ty:tt, $init:expr) => { $init };
-    ($($field:ident: $ty:tt = $node:literal $($interactive:ident)? $([$customizer:literal])? $(= $init:expr)?;)*) => {
+    ($($(#[$attr:meta])* $field:ident: $ty:tt = $node:literal $($interactive:ident)? $([$customizer:literal])? $(= $init:expr)?;)*) => {
         #[derive(DesignDocument, Debug, HarUiModel, NoDesignTokensOrVariables)]
         #[DesignDocument(root)]
         pub struct UiModel {
             customizers: UiModelCustomizers,
             display_map: HashMap<DisplayId, String>,
-            $(#[Design(node = $node $(, $interactive)? $(, customizer = $customizer)?)] pub $field: $ty,)*
+            $($(#[$attr])* #[Design(node = $node $(, $interactive)? $(, customizer = $customizer)?)] pub $field: $ty,)*
         }
 
         impl UiModel {
@@ -163,7 +168,7 @@ macro_rules! ui_model {
                 UiModel {
                     customizers: Default::default(),
                     display_map,
-                    $($field: ui_model!(@init $ty $(, $init)?),)*
+                    $($(#[$attr])* $field: ui_model!(@init $ty $(, $init)?),)*
                 }
             }
         }
@@ -256,6 +261,27 @@ ui_model! {
     agenda_qr: Picture = "#agenda/qr" ["PictureCustomizer"];
     agenda_link_title: String = "#agenda/link-title";
     agenda_link_hint: String = "#agenda/link-hint";
+    agenda_status: String = "#agenda/status";
+
+    // An agenda event's panel: #event, the library's #sheet (design/event-patch.js) with
+    // #event-content in it, at the right edge; the card and the scrim moved by the app, as #prefs.
+    // A part with no text is out of the body's column (display gone); the body moves up as it
+    // scrolls, the drag starts on #event/scroll.
+    event_scrim: Meter = "#event/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    event_scrim_taps: TapTarget = "#event/scrim" ["TapTargetCustomizer"];
+    event_card: Position = "#event/card" ["FollowPositionCustomizer"] = Position::new(crate::agenda_card::EVENT_LAYOUT.closed(crate::state::SCREEN), None);
+    _event_card_tap: () = "#event/card" interactive;
+    event_close: Slot = "#event/close" ["SlotCustomizer"];
+    event_title: String = "#event/title";
+    event_when: String = "#event/when";
+    event_place: String = "#event/place";
+    event_place_display: DisplayState = "#event/place";
+    event_link: String = "#event/link";
+    event_link_display: DisplayState = "#event/link";
+    event_description: String = "#event/description";
+    event_description_display: DisplayState = "#event/description";
+    event_body: Position = "#event/body" ["FollowPositionCustomizer"] = Position::new((0.0, 0.0), None);
+    _event_scroll_tap: () = "#event/scroll" interactive;
     wifi_scrollbar: Slot = "#wifi/scrollbar" ["SlotCustomizer"];
     wifi_rescan: Slot = "#wifi/rescan" ["SlotCustomizer"];
     wifi_ssid: String = "#wifi/ssid";
@@ -281,21 +307,35 @@ ui_model! {
     device_info_scrollbar: Slot = "#device/info-list-scrollbar" ["SlotCustomizer"];
     device_more: Slot = "#device/more" ["SlotCustomizer"];
 
-    // The panel: #panel, the library's #sheet (design/panel-patch.js) with #panel-content
-    // in it, at the right edge; the card and the scrim moved by the app, as #wifi.
+    // The panel of the browser (built with the cfg browser): #panel, the library's #sheet
+    // (design/panel-patch.js) with #panel-content in it, at the right edge; the card and the
+    // scrim moved by the app, as #wifi. Without the cfg the app binds none of it: the closed
+    // sheet stays behind the edge.
+    #[cfg(browser)]
     panel_scrim: Meter = "#panel/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    #[cfg(browser)]
     panel_scrim_taps: TapTarget = "#panel/scrim" ["TapTargetCustomizer"];
+    #[cfg(browser)]
     panel_card: Position = "#panel/card" ["FollowPositionCustomizer"] = Position::new(crate::state::PANEL_LAYOUT.closed(crate::state::SCREEN), None);
+    #[cfg(browser)]
     _panel_card_tap: () = "#panel/card" interactive;
-    // the title bar: the page's title (the story's), close; under it the browser's zone
+    // the title bar: the page's title, close; under it the browser's zone
+    #[cfg(browser)]
     panel_title: String = "#panel/title";
+    #[cfg(browser)]
     panel_close: Slot = "#panel/close" ["SlotCustomizer"];
+    #[cfg(browser)]
     browser_zone: bool = "#panel/browser" ["BrowserZoneCustomizer"] = false;
     // the loader over the browser while the page loads: skeletons sweeping, then a fade
+    #[cfg(browser)]
     panel_loading: Meter = "#panel/loading" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    #[cfg(browser)]
     panel_skeleton_1: Slot = "#panel/skeleton-1" ["SlotCustomizer"];
+    #[cfg(browser)]
     panel_skeleton_2: Slot = "#panel/skeleton-2" ["SlotCustomizer"];
+    #[cfg(browser)]
     panel_skeleton_3: Slot = "#panel/skeleton-3" ["SlotCustomizer"];
+    #[cfg(browser)]
     panel_skeleton_4: Slot = "#panel/skeleton-4" ["SlotCustomizer"];
 
     // The settings: #prefs, the library's #sheet (design/prefs-patch.js) with #prefs-content in

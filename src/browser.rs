@@ -1,6 +1,7 @@
 //! The panel's browser: Cog in the Debian root (vendor/sdv-everyware/everyware docs/project/
 //! browser.md), a Wayland client of this app shown in #panel/browser (ui_model.rs
-//! ZONE_BROWSER_TAG). Experimental and off by default (config::browser); nothing on the
+//! ZONE_BROWSER_TAG). Experimental: built only with the cfg browser (everyware's
+//! EVERYWARE_BROWSER=true), shown only in an image that has it (config::browser); nothing on the
 //! dashboard opens a page in it.
 //!
 //! The page goes to the browser as one line in a FIFO; a relay inside the root (uid browser,

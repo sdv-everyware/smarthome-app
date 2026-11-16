@@ -18,7 +18,7 @@ use har_monitoring::har_performance_monitor::HarPerformanceMonitor;
 use har_platform_api::commlib::api::DocumentSwitch;
 use har_platform_api::commlib::responder::{ChannelResponder, ResponseMonitorThread};
 use har_platform_api::graphics::FontInfo;
-use har_platform_api::looper::{DisplayId, Looper, LooperOptions};
+use har_platform_api::looper::{create_resource_manager_client, DisplayId, LayoutHelperManager, Looper, LooperOptions};
 use har_user_input_evdev::EvdevService;
 use harry::reducer::{Actions, DefaultReducer, InputDispatcherCallback};
 use harry_app_utils::document_loader::{
@@ -32,6 +32,8 @@ use std::time::Duration;
 
 mod actions;
 mod agenda;
+mod agenda_card;
+#[cfg(browser)]
 mod browser;
 mod clock;
 mod config;
@@ -41,6 +43,7 @@ mod screen_binder;
 mod presenter;
 mod resource_loader;
 mod state;
+mod text_measure;
 mod ui_event_listener;
 mod ui_model;
 mod weather;
@@ -110,6 +113,15 @@ fn main() {
         unsafe { layout_helper.load_font(vec![FontInfo::new(family, *weight)], data) }
             .expect("Failed to load a font into the layout helper");
     }
+    // A helper of the app's own, with the same fonts: the agenda measures its texts with it as
+    // harry lays them out (text_measure.rs).
+    match layout_helper.new_layout_helper() {
+        Ok(mut measuring) => match layout_helper.update_helper_if_needed(&mut measuring) {
+            Ok(()) => text_measure::set_helper(Box::new(measuring)),
+            Err(e) => log::warn!("smarthome: no fonts for the text measure: {e:?}"),
+        },
+        Err(e) => log::warn!("smarthome: no layout helper to measure text: {e:?}"),
+    }
     let reducer: DefaultReducer<State, HomeAction, UiModel, (), _, _> = DefaultReducer::new(
         State::new(sizes),
         UiModel::new(display_root_node_map),
@@ -124,6 +136,8 @@ fn main() {
     let actions = reducer.action_tx();
     let listener_actions = reducer.action_tx();
     let (looper_tx, looper_rx) = channel();
+    // a picture that changes (the agenda's QR code) reaches the renderer through the looper
+    everyware_ui::images::set_client(create_resource_manager_client(looper_tx.clone()));
     let velocity = everyware_ui::Velocity::default();
     // The document-load monitor below takes looper_tx; the bridge needs its own sender.
     let bridge_tx = looper_tx.clone();
@@ -182,7 +196,8 @@ fn main() {
     // known (screen_binder.rs).
     screen_binder::spawn(actions.clone());
     // How the page in the panel's browser is doing: the loader goes when it shows. Only with the
-    // browser (experimental, off by default: config::browser).
+    // browser (experimental: built with the cfg browser, and an image that has it: config::browser).
+    #[cfg(browser)]
     if config::browser() {
         browser::spawn_events(actions.clone());
     }
@@ -262,7 +277,7 @@ fn main() {
                     zone_max_fps: args.zone_fps,
                     zone_plane: args.zone_plane,
                     // Without the browser no ordinary window gets a zone; har_zone clients do.
-                    xdg_default_tag: config::browser().then(|| ui_model::ZONE_BROWSER_TAG.to_string()),
+                    xdg_default_tag: browser_tag(),
                 },
             )
         }
@@ -295,4 +310,16 @@ fn create_looper(displays: &[Display]) -> impl Looper<ResourceManager> {
         looper.add_display(o).unwrap_or_else(|_| panic!("Cannot add display: {id:?}."));
     });
     looper
+}
+
+/// The zone every ordinary Wayland window binds to: the browser's panel, when the panel is built
+/// with the browser (the cfg browser) and the image has it; else none.
+#[cfg(browser)]
+fn browser_tag() -> Option<String> {
+    config::browser().then(|| ui_model::ZONE_BROWSER_TAG.to_string())
+}
+
+#[cfg(not(browser))]
+fn browser_tag() -> Option<String> {
+    None
 }
