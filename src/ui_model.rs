@@ -23,8 +23,8 @@ use std::time::Duration;
 /// Zone tag of the camera tile: the content tag a Wayland client names in har_zone, not the
 /// layer's name. A harry client built for a zone binds to it (its display params, zone_tag).
 pub const ZONE_CAMERA_TAG: &str = "#zone/camera";
-/// Zone tag of the panel's browser (#panel/browser): every ordinary Wayland app (xdg-shell, the
-/// browser) binds to it (main.rs, BridgeConfig::xdg_default_tag).
+/// Zone tag of the panel's browser (#panel/browser, experimental, off by default): with it every
+/// ordinary Wayland app (xdg-shell, the browser) binds to it (main.rs, BridgeConfig::xdg_default_tag).
 pub const ZONE_BROWSER_TAG: &str = "#zone/browser";
 
 /// Turns a node into a zone: every ~33 ms it re-applies ExternalImage(ZONE_CAMERA_TAG), so

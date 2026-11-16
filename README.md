@@ -29,7 +29,7 @@ reboot. The key in `apex/keys/` is a test key of this public repository, as AOSP
 are: a product signs its APEX with a key of its own, never with this one.
 
 Options: `--wayland-zones` serves Wayland clients and shows them in the zones of the design (the
-camera tile, the browser panel) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
+camera tile, the browser panel when the image has the experimental browser) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
 frame rate; `--zone-plane` puts a client on a display plane of its own; `--zone-redraw
 timer|frames` picks what redraws the dashboard for a zone. `--touch-size WxH` maps the touch
 screen's units to the display. `SMARTHOME_LOG=debug|trace` for a diagnostic run.

@@ -750,7 +750,7 @@ pub fn about() -> String {
 }
 
 /// A system property's value, empty when it is not set.
-fn property(name: &str) -> String {
+pub(crate) fn property(name: &str) -> String {
     let name = std::ffi::CString::new(name).expect("no NUL in a property name");
     let mut value = [0 as libc::c_char; 92];
     // SAFETY: name is NUL terminated, value has room for PROP_VALUE_MAX bytes; bionic writes a

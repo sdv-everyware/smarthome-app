@@ -1,6 +1,7 @@
 //! The panel's browser: Cog in the Debian root (vendor/sdv-everyware/everyware docs/project/
 //! browser.md), a Wayland client of this app shown in #panel/browser (ui_model.rs
-//! ZONE_BROWSER_TAG). A tap on a news story opens its page there.
+//! ZONE_BROWSER_TAG). Experimental and off by default (config::browser): with it, a tap on a news
+//! story opens its page there.
 //!
 //! The page goes to the browser as one line in a FIFO; a relay inside the root (uid browser,
 //! run-browser-rb3.sh) reads it and runs `cogctl open`, which reaches Cog over a D-Bus session
