@@ -144,8 +144,8 @@ fn main() {
             responder,
         ))
         .expect("Cannot send document load action");
-    // The first frame, as HAR's reference app waits for it (harry::splash: the performance
-    // monitor's first frame of the document), logged with the time since the kernel started
+    // The first frame of the document, from the performance monitor, logged with the time since
+    // the kernel started
     // (CLOCK_BOOTTIME, the clock of the kernel log and of init's ro.boottime.*): the boot-time
     // measurement reads it (everyware/tools/boot-time).
     {
