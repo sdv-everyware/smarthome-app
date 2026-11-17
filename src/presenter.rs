@@ -5,7 +5,7 @@
 use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
 use customizations::render_customizations::DisplayState;
-use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
+use everyware_ui::{list, scrollbar, slot, slot_shown, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
@@ -67,6 +67,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         let card = card.unwrap_or(crate::agenda::LinkCard { title: String::new(), hint: String::new(), qr: None });
         model.agenda_link_title = card.title;
         model.agenda_link_hint = card.hint;
+        model.agenda_account = slot_shown("#agenda/account", &agenda.account, agenda.linked());
 
         // while the keyboard dock is open the dialogs centre in the screen above it
         let free_height = if state.osk.open() { SCREEN.1 - KEYBOARD_DOCK_H } else { SCREEN.1 };
@@ -154,6 +155,27 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         (model.event_link, model.event_link_display) = (d.link.clone(), shown(&d.link));
         (model.event_description, model.event_description_display) = (d.description.clone(), shown(&d.description));
         model.event_body = Scrolled::new(0.0, &event.body);
+        // the step, and what each step offers (agenda_card.rs EventPanel)
+        let gone = |on: bool| if on { DisplayState::Visible } else { DisplayState::Gone };
+        let offers = &event.offers;
+        model.event_step = Variant(event.step.variant().to_string());
+        (model.event_rsvp, model.event_rsvp_display) = (slot("#event/rsvp", &event.rsvp), gone(d.respond));
+        (model.event_join, model.event_join_display) = (slot("#event/join", &event.join), gone(offers.join.is_some()));
+        (model.event_directions, model.event_directions_display) = (slot("#event/directions", &event.directions), gone(offers.directions.is_some()));
+        (model.event_delete, model.event_delete_display) = (slot("#event/delete", &event.delete), gone(offers.delete));
+        (model.event_status, model.event_status_display) = (event.status.clone(), shown(&event.status));
+        (model.event_error, model.event_error_display) = (event.error.clone(), shown(&event.error));
+        model.event_qr_title = event.qr_title.clone();
+        model.event_qr = event.qr_picture();
+        model.event_back = slot("#event/back", &event.back);
+        let (question, line) = event.confirm_texts();
+        model.event_confirm_title = question.to_string();
+        (model.event_confirm_text, model.event_confirm_text_display) = (line.to_string(), shown(line));
+        model.event_cancel = slot("#event/cancel", &event.cancel);
+        model.event_confirm = slot("#event/confirm", &event.confirm);
+        model.event_access = event.access.clone();
+        model.event_change_access = slot("#event/change-access", &event.change_access);
+        model.event_disconnect = slot("#event/disconnect", &event.disconnect);
 
         // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
         model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());

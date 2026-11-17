@@ -3,7 +3,7 @@
  * (vendor/sdv-everyware/everyware/bundles/dashboard) subscribes to the house's topics and calls
  * com.everyware.screen.IScreenLink/default (vendor/sdv-everyware/everyware/interfaces/screen): it
  * pushes the weather, the agenda, the Wi-Fi networks and state, the Matter devices, the device's
- * settings and the answers to the screen's commands, and hands in the sink the screen's commands
+ * settings and the answers to the screen's commands (Wi-Fi, Matter, calendar), and hands in the sink the screen's commands
  * go to (the news too: the panel shows none and drops it). The commands carry
  * the password typed on the screen, so the server takes a call only from the dashboard bundle:
  * the kernel gives the caller's pid and uid with every call, and the SDV identity agent says
@@ -19,6 +19,7 @@ use binder::{BinderFeatures, DeathRecipient, ExceptionCode, IBinder, Interface, 
 use com_everyware_screen::aidl::com::everyware::screen::ICommandSink::ICommandSink;
 use com_everyware_screen::aidl::com::everyware::screen::IScreenLink::{BnScreenLink, IScreenLink};
 use everyware_catalog::calendar::Agenda;
+use everyware_catalog::calendar_service::{CalendarCommand, CalendarResult};
 use everyware_catalog::matter::MatterDevices;
 use everyware_catalog::matter_service::{MatterCommand, MatterResult};
 use everyware_catalog::weather::Weather;
@@ -99,6 +100,12 @@ pub fn send_wifi_command(command: WifiCommand) -> bool {
 /// Sends a Matter command to the dashboard bundle; false: it did not go out (logged).
 pub fn send_matter_command(command: MatterCommand) -> bool {
     send("Matter", &command, |sink, bytes| sink.onMatterCommand(bytes))
+}
+
+/// Sends a change of the calendar (an answer, a deletion, the unlink) to the dashboard bundle;
+/// false: it did not go out (logged).
+pub fn send_calendar_command(command: CalendarCommand) -> bool {
+    send("calendar", &command, |sink, bytes| sink.onCalendarCommand(bytes))
 }
 
 /// Asks for a change of the device's settings; the values come back with publishSettings once
@@ -237,6 +244,14 @@ impl IScreenLink for ScreenLink {
         let result = parse::<MatterResult>(result, "MatterResult")?;
         let message = MatterCommandResult { command: command.to_string(), node_id: node_id as u64, endpoint: endpoint as u32, result };
         self.act(HomeAction::MatterResult(message));
+        Ok(())
+    }
+
+    fn publishCalendarResult(&self, command: &str, event_id: &str, result: &[u8]) -> binder::Result<()> {
+        self.check_caller()?;
+        let result = parse::<CalendarResult>(result, "CalendarResult")?;
+        let answer = crate::agenda_card::CalendarAnswer { command: command.to_string(), event_id: event_id.to_string(), result };
+        self.act(HomeAction::CalendarResult(answer));
         Ok(())
     }
 

@@ -29,7 +29,7 @@
 //! by everyone in the room: the agenda's `calendar` is never shown (Google names a primary
 //! calendar by the account's e-mail address); the card's only title is the design's "Agenda".
 
-use everyware_catalog::calendar::{Agenda, AgendaEvent, CalendarLink};
+use everyware_catalog::calendar::{Agenda, AgendaEvent, CalendarLink, Rsvp};
 use everyware_ui_core::list_item::{ListItem, ListItemKind, ListItemLines, ListItemSize};
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
@@ -242,28 +242,91 @@ fn all_day_days(event: &AgendaEvent) -> i64 {
     (event.end.saturating_sub(event.start) / 86_400).max(1)
 }
 
-/// What the event's panel shows: the whole title, the day and the time, the place, the meeting
-/// link as text (the panel opens nothing) and the description, each plain text; a private event
-/// comes from the bundle as "Busy" without the rest.
+/// What the event's panel shows: the whole title, the day and the time, the place, the answers
+/// to its invitation when the panel may give one, the meeting link as text (the panel opens
+/// nothing) and the description, each plain text; a private event comes from the bundle as "Busy"
+/// without the rest.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Details {
     pub title: String,
     pub when: String,
     pub place: String,
+    /// Accept, Maybe and Decline show under the place (AgendaEvent.can_respond).
+    pub respond: bool,
     pub link: String,
     pub description: String,
 }
 
 /// The details of `event` as the panel shows them on `today`.
 pub fn details(event: &AgendaEvent, today: Date, tz: &TimeZone, hour24: bool) -> Details {
-    let link = plain(&event.meeting_url);
     Details {
         title: headline(event),
         when: when_text(event, today, tz, hour24),
         place: plain(&event.location),
-        link: if link.starts_with("https://") && !link.contains(' ') { link } else { String::new() },
+        respond: event.can_respond,
+        link: meeting_link(event).unwrap_or_default(),
         description: plain_lines(&event.description),
     }
+}
+
+/// The event's meeting link as plain text: https and no space, else none.
+fn meeting_link(event: &AgendaEvent) -> Option<String> {
+    let link = plain(&event.meeting_url);
+    (link.starts_with("https://") && !link.contains(' ')).then_some(link)
+}
+
+/// What the panel of an event offers besides its details: a QR code of its meeting ("Join on
+/// phone") and of a Google Maps search for its place ("Directions"), the answers to its
+/// invitation and its deletion. What the account may change is the calendar bundle's word
+/// (AgendaEvent.can_respond, can_delete); the bundle checks it again on every change.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Offers {
+    /// Google's id of the event, for a change.
+    pub id: String,
+    /// The meeting link the phone opens.
+    pub join: Option<String>,
+    /// The Maps search of the place the phone opens.
+    pub directions: Option<String>,
+    /// The panel may answer the invitation: the account's answer now (RSVP_NEEDS_ACTION while
+    /// it has not answered).
+    pub respond: Option<Rsvp>,
+    /// The panel may delete the event.
+    pub delete: bool,
+    /// One occurrence of a recurring event: a deletion deletes this occurrence only.
+    pub recurring: bool,
+}
+
+/// What `event`'s panel offers.
+pub fn offers(event: &AgendaEvent) -> Offers {
+    let place = plain(&event.location);
+    Offers {
+        id: event.id.clone(),
+        join: meeting_link(event),
+        directions: (!place.is_empty()).then(|| maps_url(&place)),
+        respond: event.can_respond.then(|| event.response.enum_value_or_default()),
+        delete: event.can_delete,
+        recurring: event.recurring,
+    }
+}
+
+/// Google Maps' search of `place` (its URL API, `api=1`): the place URL-encoded into the query,
+/// so nothing in it reaches another parameter or the path.
+pub fn maps_url(place: &str) -> String {
+    format!("https://www.google.com/maps/search/?api=1&query={}", url_encoded(place))
+}
+
+/// `text` percent-encoded byte by byte (RFC 3986): the unreserved characters stay, every other
+/// byte of its UTF-8 is %XX.
+fn url_encoded(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 3);
+    for b in text.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 /// The day and the time of an event: "Tue, Nov 17 · 08:30 to 09:00", "Tue, Nov 17 · 22:00 to
@@ -742,6 +805,36 @@ mod tests {
         e.meeting_url = "javascript:alert(1)".to_string();
         assert_eq!(details(&e, today, &tz, true).link, "");
         assert_eq!(details(&e, today, &tz, false).when, "Tue, Nov 17 · 8:30 AM to 9:00 AM");
+    }
+
+    #[test]
+    fn what_an_event_offers() {
+        let mut e = event("Dentist", "2026-11-17T07:30:00Z", 30);
+        e.id = "abc_20261117T073000Z".to_string();
+        e.location = "Main St 12 & 14, Zürich #2\n?x=1".to_string();
+        e.meeting_url = "https://zoom.example/j/1?pwd=x".to_string();
+        let o = offers(&e);
+        assert_eq!(o.id, "abc_20261117T073000Z");
+        assert_eq!(o.join.as_deref(), Some("https://zoom.example/j/1?pwd=x"));
+        // the place as one plain line, every byte that is not unreserved encoded
+        assert_eq!(o.directions.as_deref(), Some("https://www.google.com/maps/search/?api=1&query=Main%20St%2012%20%26%2014%2C%20Z%C3%BCrich%20%232%20%3Fx%3D1"));
+        // nothing to change unless the bundle says so
+        assert_eq!((o.respond, o.delete, o.recurring), (None, false, false));
+        e.can_respond = true;
+        e.response = Rsvp::RSVP_TENTATIVE.into();
+        e.recurring = true;
+        let o = offers(&e);
+        assert_eq!((o.respond, o.recurring), (Some(Rsvp::RSVP_TENTATIVE), true));
+        e.can_delete = true;
+        assert!(offers(&e).delete);
+        // no place, no https link: no code
+        e.location = " \t".to_string();
+        e.meeting_url = "http://insecure.example/j".to_string();
+        let o = offers(&e);
+        assert_eq!((o.join, o.directions), (None, None));
+        // the details say whether the answers show
+        let tz = TimeZone::UTC;
+        assert!(details(&e, at("2026-11-17T06:00:00Z").to_zoned(tz.clone()).date(), &tz, true).respond);
     }
 
     #[test]

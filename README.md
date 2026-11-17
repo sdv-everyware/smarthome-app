@@ -2,7 +2,10 @@
 
 The smart home panel on harry (1920 x 1080): the time and the weather, the rooms as tiles (the
 lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the agenda (a
-tap on an event shows its details at the right), and the Wi-Fi settings and the settings in
+tap on an event shows its details at the right, with a QR code of its meeting and of its place
+for the phone, and, when the owner gave the panel write access, Accept, Maybe and Decline on an
+invitation and Delete on the account's own event; the agenda's header button opens the
+calendar's link: Change access and Disconnect), and the Wi-Fi settings and the settings in
 sheets. It is written against the EveryWare UI library (`vendor/sdv-everyware/ui-lib`); the
 house's data comes from the dashboard bundle over binder (`src/screen_binder.rs`). How the app is built, step by step: [`docs/harry-app-anatomy.md`](docs/harry-app-anatomy.md).
 

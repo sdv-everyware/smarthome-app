@@ -117,7 +117,7 @@ impl ListHeights {
         };
         ListHeights {
             agenda: height("#agenda/list", sizes.frame("#agenda/list")),
-            event_body: height("#event/scroll", sizes.part("#event-content", "state=default", "#event/scroll")),
+            event_body: height("#event/scroll", sizes.part("#event-content", "step=details", "#event/scroll")),
             wifi: height("#wifi/networks", sizes.part("#wifi-content", "step=networks", "#wifi/networks")),
             device_state: height("#device/state-list", sizes.part("#device-content", "state=default", "#device/state-list")),
             device_info: height("#device/info-list", sizes.part("#device-content", "state=default", "#device/info-list")),
@@ -755,13 +755,18 @@ pub fn agenda_measure() -> crate::agenda_card::Measure {
     const WHEN: Font = Font { family: "Inter", weight: 400.0, size: 19.0, line_height: 26.0 };
     const LINK: Font = Font { family: "Inter", weight: 400.0, size: 17.0, line_height: 24.0 };
     const TEXT: Font = Font { family: "Inter", weight: 400.0, size: 19.0, line_height: 28.0 };
+    // Accept, Maybe and Decline: the library's #segmented (3 segments)
+    const RSVP_H: f32 = 56.0;
     fn headline_lines(title: &str) -> usize {
         lines(title, &HEADLINE, HEADLINE_W)
     }
     fn body_height(d: &crate::agenda::Details) -> f32 {
         let parts = [(&d.title, TITLE, CONTENT_W - 72.0 - 16.0), (&d.when, WHEN, CONTENT_W), (&d.place, WHEN, CONTENT_W), (&d.link, LINK, CONTENT_W), (&d.description, TEXT, CONTENT_W)];
-        // an empty part is out of the column (display gone), with its gap
-        let shown: Vec<f32> = parts.iter().filter(|(t, _, _)| !t.is_empty()).map(|(t, font, w)| height(t, font, *w)).collect();
+        // an empty part is out of the column (display gone), with its gap; so are the answers
+        let mut shown: Vec<f32> = parts.iter().filter(|(t, _, _)| !t.is_empty()).map(|(t, font, w)| height(t, font, *w)).collect();
+        if d.respond {
+            shown.push(RSVP_H);
+        }
         shown.iter().sum::<f32>() + GAP * shown.len().saturating_sub(1) as f32
     }
     crate::agenda_card::Measure { headline_lines, body_height }
