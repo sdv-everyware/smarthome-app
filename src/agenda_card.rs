@@ -22,7 +22,8 @@
 //!   the address carries a one-time token and is never logged.
 //! - The event's panel closes on its scrim or its close button, and when a new agenda no longer
 //!   has the event; while it is open, a new agenda brings the event's new details. Its body
-//!   scrolls (a list of one row as high as the body: Android's drag and fling).
+//!   scrolls (a list of one row as high as the body: Android's drag and fling; ui-lib's `Scrolled`
+//!   draws it on the fling's curve, so a finger that catches a fling stops it where it shows).
 
 use crate::agenda::{self, Details, QR_KEY, QR_SIDE};
 use everyware_catalog::calendar::{Agenda, CalendarLink};
@@ -31,12 +32,11 @@ use everyware_ui::images;
 use everyware_ui::list_item::ListItem;
 use everyware_ui::list_view::{ListEvent, ListView};
 use everyware_ui::sheet::{Edge, Layout, Sheet};
-use everyware_ui::transitions::{Easing, Transition};
 use everyware_ui::Gesture;
 use jiff::civil::Date;
 use jiff::tz::TimeZone;
 use jiff::Timestamp;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// How the event's panel shows: half the screen at the right edge (the design has #event in
 /// that layout).
@@ -121,19 +121,6 @@ impl EventPanel {
     /// Whether it is open.
     pub fn is_open(&self) -> bool {
         self.sheet.is_open()
-    }
-
-    /// Where the body is (how far it is scrolled up) and how it gets there: at once, or along a
-    /// fling to its end.
-    pub fn body_offset(&self, now: Instant) -> (f32, Option<Transition>) {
-        let scroll = self.body.scroll();
-        match scroll.fling {
-            Some(fling) if fling.ends_at() > now => {
-                let (end, _) = fling.position(fling.ends_at());
-                (end, Some(Transition { duration: fling.ends_at() - now, easing: Easing::EaseOut, delay: Duration::ZERO }))
-            }
-            _ => (scroll.at(now).0, None),
-        }
     }
 
     /// A gesture on the body: a drag or a fling scrolls it.
@@ -323,10 +310,12 @@ mod tests {
         e
     }
 
+    /// A linked agenda, read at 08:00 UTC on 10 November.
     fn linked(events: Vec<AgendaEvent>) -> Agenda {
         let mut a = Agenda::new();
         a.link = CalendarLink::CALENDAR_CONNECTED.into();
         a.events = events;
+        a.updated = at("2026-11-10T08:00:00Z").as_second();
         a
     }
 
@@ -445,6 +434,47 @@ mod tests {
     }
 
     #[test]
+    fn a_finger_on_a_row_stays_on_its_event_when_titles_repeat() {
+        let mut c = card();
+        let standup = |id: &str, start: &str| {
+            let mut e = event(id, start, 15);
+            e.title = "Stand-up".to_string();
+            e
+        };
+        c.set(linked(vec![standup("mon", "2026-11-10T09:00:00Z"), standup("tue", "2026-11-11T09:00:00Z")]), "UTC", true, at("2026-11-10T08:00:00Z"));
+        assert_eq!(titles(&c), ["|TODAY", "09:00|Stand-up", "|TOMORROW", "09:00|Stand-up"]);
+        // the finger goes down on tomorrow's
+        let t = Instant::now();
+        c.on_list(Some(3), Gesture::down(0.0, 10.0), t);
+        // a new agenda before the lift: today's is over, another stand-up came today
+        c.set(linked(vec![standup("extra", "2026-11-10T11:00:00Z"), standup("tue", "2026-11-11T09:00:00Z")]), "UTC", true, at("2026-11-10T09:20:00Z"));
+        assert_eq!(titles(&c), ["|TODAY", "11:00|Stand-up", "|TOMORROW", "09:00|Stand-up"]);
+        assert!(!c.list.rows()[1].press.pressed && c.list.rows()[3].press.pressed, "the press stays on tomorrow's");
+        c.on_list(Some(3), Gesture::up(0.0, 10.0), t);
+        assert_eq!(c.event.id.as_deref(), Some("tue"));
+    }
+
+    #[test]
+    fn an_agenda_not_read_yet_says_so_and_its_line_takes_no_tap() {
+        let mut c = card();
+        let mut a = linked(vec![]);
+        a.updated = 0;
+        c.set(a.clone(), "UTC", true, at("2026-11-10T08:00:00Z"));
+        assert_eq!(titles(&c), ["|Reading the calendar"]);
+        let t = Instant::now();
+        c.on_list(Some(0), Gesture::down(0.0, 10.0), t);
+        assert!(!c.list.rows()[0].press.pressed, "no pressed layer");
+        c.on_list(Some(0), Gesture::up(0.0, 10.0), t);
+        assert!(!c.event.is_open());
+        a.read_failed = true;
+        c.set(a, "UTC", true, at("2026-11-10T08:01:00Z"));
+        assert_eq!(titles(&c), ["|The calendar could not be read. Trying again."]);
+        // read: the day and its events
+        c.set(linked(vec![event("a", "2026-11-10T09:00:00Z", 30)]), "UTC", true, at("2026-11-10T08:02:00Z"));
+        assert_eq!(titles(&c), ["|TODAY", "09:00|Event a"]);
+    }
+
+    #[test]
     fn a_new_agenda_without_the_event_closes_its_panel() {
         let mut c = card();
         let now = at("2026-11-10T08:00:00Z");
@@ -484,10 +514,16 @@ mod tests {
         assert_eq!(c.event.body.max_scroll(), 630.0);
         c.event.on_body(Gesture::down(0.0, 500.0), t);
         c.event.on_body(Gesture::Move { x: 0.0, y: 100.0, inside: true }, t);
-        assert_eq!(c.event.body_offset(t), (400.0 - everyware_ui::scroller::TOUCH_SLOP, None));
-        // a fast lift: it goes along the fling to an end within the body
+        assert_eq!(c.event.body.scroll_at(t), 400.0 - everyware_ui::scroller::TOUCH_SLOP);
+        // a fast lift: it flings to an end within the body
         c.event.on_body(Gesture::Up { x: 0.0, y: 100.0, inside: true, velocity: -3000.0, velocity_x: 0.0 }, t);
-        let (end, transition) = c.event.body_offset(t);
-        assert!(transition.is_some() && end > 400.0 && end <= 630.0, "{end}");
+        let fling = c.event.body.scroll().fling.expect("a fling");
+        let end = c.event.body.scroll_at(fling.ends_at());
+        assert!(end > 400.0 && end <= 630.0, "{end}");
+        // a finger that catches it stops it where the fling is, which is where it is drawn
+        let caught = t + std::time::Duration::from_millis(100);
+        let there = c.event.body.scroll_at(caught);
+        c.event.on_body(Gesture::down(0.0, 300.0), caught);
+        assert_eq!(c.event.body.scroll_at(caught + std::time::Duration::from_secs(1)), there);
     }
 }

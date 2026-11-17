@@ -14,7 +14,7 @@ use har_ui_model_derive::HarUiModel;
 use har_ui_model_derive::NoDesignTokensOrVariables;
 use customizations::render_customizations::List;
 use customizations::AnimationOverride;
-use everyware_ui::{FollowOpacityCustomizer, FollowPositionCustomizer, Meter, Position, ScreenCustomizer, ScreenView, Slot, SlotCustomizer, TapTarget, TapTargetCustomizer, Variant};
+use everyware_ui::{FollowOpacityCustomizer, FollowPositionCustomizer, Meter, Position, ScreenCustomizer, ScreenView, Scrolled, ScrolledCustomizer, Slot, SlotCustomizer, TapTarget, TapTargetCustomizer, Variant};
 use customizations::render_customizations::RenderCustomization;
 use customizations::{CustomizerOutput, ExternalImageContent, ImageContentData};
 use std::collections::HashMap;
@@ -266,7 +266,7 @@ ui_model! {
     // An agenda event's panel: #event, the library's #sheet (design/event-patch.js) with
     // #event-content in it, at the right edge; the card and the scrim moved by the app, as #prefs.
     // A part with no text is out of the body's column (display gone); the body moves up as it
-    // scrolls, the drag starts on #event/scroll.
+    // scrolls (a fling stepped frame by frame, ui-lib Scrolled), the drag starts on #event/scroll.
     event_scrim: Meter = "#event/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
     event_scrim_taps: TapTarget = "#event/scrim" ["TapTargetCustomizer"];
     event_card: Position = "#event/card" ["FollowPositionCustomizer"] = Position::new(crate::agenda_card::EVENT_LAYOUT.closed(crate::state::SCREEN), None);
@@ -280,7 +280,7 @@ ui_model! {
     event_link_display: DisplayState = "#event/link";
     event_description: String = "#event/description";
     event_description_display: DisplayState = "#event/description";
-    event_body: Position = "#event/body" ["FollowPositionCustomizer"] = Position::new((0.0, 0.0), None);
+    event_body: Scrolled = "#event/body" ["ScrolledCustomizer"] = Scrolled::default();
     _event_scroll_tap: () = "#event/scroll" interactive;
     wifi_scrollbar: Slot = "#wifi/scrollbar" ["SlotCustomizer"];
     wifi_rescan: Slot = "#wifi/rescan" ["SlotCustomizer"];

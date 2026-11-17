@@ -5,7 +5,7 @@
 use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
 use customizations::render_customizations::DisplayState;
-use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, TapTarget, Variant};
+use everyware_ui::{list, scrollbar, slot, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
@@ -153,8 +153,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         (model.event_place, model.event_place_display) = (d.place.clone(), shown(&d.place));
         (model.event_link, model.event_link_display) = (d.link.clone(), shown(&d.link));
         (model.event_description, model.event_description_display) = (d.description.clone(), shown(&d.description));
-        let (scrolled, along) = event.body_offset(std::time::Instant::now());
-        model.event_body = Position::new((0.0, -scrolled), along);
+        model.event_body = Scrolled::new(0.0, &event.body);
 
         // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
         model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());

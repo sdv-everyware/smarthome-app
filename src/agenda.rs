@@ -16,8 +16,10 @@
 //! leading text: the start over the duration, "Until" over the end for an event that began on an
 //! earlier day, "All day" over "Day 2 of 3"; a bar in the event's colour; the whole title over as
 //! many lines as it takes, the place under it), and "Nothing scheduled. Enjoy the day." for a
-//! today without events. A tap on an event opens its details (`details`). The days and the times
-//! are the panel's: its time zone and its 12 or 24 hour clock, the settings the clock follows.
+//! today without events. Until the calendar was read once the list has no day, only a line that
+//! it is being read or could not be read: the events are unknown, not none. A tap on an event
+//! opens its details (`details`); the other lines take no tap. The days and the times are the
+//! panel's: its time zone and its 12 or 24 hour clock, the settings the clock follows.
 //! While no calendar is linked a card over the list says so, with the QR code of the setup page
 //! when there is one (`qr_rgba`, a picture the app makes); an old agenda says its age (`status`).
 //!
@@ -40,6 +42,9 @@ pub const ROW_PITCH: f32 = 72.0 + 8.0;
 pub const SUBHEADER_PITCH: f32 = 48.0 + 8.0;
 /// The line of a today without events.
 pub const NOTHING_TODAY: &str = "Nothing scheduled. Enjoy the day.";
+/// The line while the calendar was not read yet, and after a read that failed.
+pub const READING: &str = "Reading the calendar";
+pub const NOT_READ: &str = "The calendar could not be read. Trying again.";
 /// The key of the QR code's picture (everyware_ui::images).
 pub const QR_KEY: &str = "agenda/qr";
 /// The QR code's frame in the design (#agenda/qr), square: the picture is made at this size, so
@@ -92,18 +97,30 @@ pub fn link_card(agenda: Option<&Agenda>, house_link: bool) -> Option<LinkCard> 
 const STALE_SECS: i64 = 5 * 60;
 
 /// The line beside the card's title: empty while the agenda is fresh; else how old it is, as
-/// the weather says it ("Last read 14:02 · no link to the house's data").
+/// the weather says it ("Last read 14:02 · no link to the house's data"; "Last read Mon 14:02"
+/// on another day). Before the first read the list says it (`READING`).
 pub fn status(agenda: Option<&Agenda>, house_link: bool, now: Timestamp, tz: &TimeZone, hour24: bool) -> String {
     let Some(agenda) = agenda.filter(|a| a.link.enum_value() == Ok(CalendarLink::CALENDAR_CONNECTED)) else {
         return String::new();
     };
-    let last = (agenda.updated > 0).then(|| format!("Last read {}", time_text(&zoned(agenda.updated, tz), hour24)));
+    let last = (agenda.updated > 0).then(|| format!("Last read {}", read_at(agenda.updated, now, tz, hour24)));
     match (house_link, last) {
         (false, Some(last)) => format!("{last} · no link to the house's data"),
         (false, None) => "no link to the house's data".to_string(),
-        (true, None) => "Reading the calendar".to_string(),
         (true, Some(last)) if now.as_second().saturating_sub(agenda.updated) > STALE_SECS => last,
-        (true, Some(_)) => String::new(),
+        (true, _) => String::new(),
+    }
+}
+
+/// When the agenda was read: the time on the panel's today ("14:02"), the weekday before it on
+/// another day of the last week ("Mon 14:02"), the date before that ("Nov 10 14:02").
+fn read_at(updated: i64, now: Timestamp, tz: &TimeZone, hour24: bool) -> String {
+    let read = zoned(updated, tz);
+    let time = time_text(&read, hour24);
+    match read.date().until(now.to_zoned(tz.clone()).date()).map(|span| span.get_days()) {
+        Ok(0) => time,
+        Ok(1..=6) => format!("{} {time}", weekday_short(read.date())),
+        _ => format!("{} {time}", month_day(read.date())),
     }
 }
 
@@ -119,10 +136,18 @@ pub struct AgendaRows {
 /// always; an event that has ended is left out, one that began before today and goes on is
 /// today's. A headline is shown whole: `headline_lines` says how many lines it takes in a row
 /// (the app measures it), the row is that high and takes that much of the list. None of it while
-/// no calendar is linked (the card shows).
+/// no calendar is linked (the card shows); before the first read one line, `READING` or, after
+/// a failed read, `NOT_READ`, and no day. Each row is known by its event's id or its day across a
+/// new agenda (`ListItem::id`), so a finger on a row stays on it when titles repeat.
 pub fn rows(agenda: &Agenda, now: Timestamp, tz: &TimeZone, hour24: bool, headline_lines: &dyn Fn(&str) -> usize) -> AgendaRows {
     let mut out = AgendaRows::default();
     if agenda.link.enum_value() != Ok(CalendarLink::CALENDAR_CONNECTED) {
+        return out;
+    }
+    if agenda.updated == 0 {
+        // not read yet: the events are unknown, not none (calendar.proto)
+        out.items.push(note(if agenda.read_failed { NOT_READ } else { READING }));
+        out.events.push(None);
         return out;
     }
     let today = now.to_zoned(tz.clone()).date();
@@ -142,13 +167,13 @@ pub fn rows(agenda: &Agenda, now: Timestamp, tz: &TimeZone, hour24: bool, headli
         out.items.push(
             ListItem::new(ListItemKind::Subheader, day_label(day, today), "")
                 .trailing_text(date_label(day))
+                .id(format!("day/{day}"))
                 .size(ListItemSize::Column)
                 .pitch(SUBHEADER_PITCH),
         );
         out.events.push(None);
         if events.is_empty() {
-            let free = ListItem::new(ListItemKind::Plain, NOTHING_TODAY, "").lines(ListItemLines::One).size(ListItemSize::Column);
-            out.items.push(free.clone().pitch(free.height() + GAP));
+            out.items.push(note(NOTHING_TODAY));
             out.events.push(None);
         }
         // a day's all-day events first, then by their start; equal ones keep Google's order
@@ -164,6 +189,13 @@ pub fn rows(agenda: &Agenda, now: Timestamp, tz: &TimeZone, hour24: bool, headli
 /// Between two rows.
 const GAP: f32 = 8.0;
 
+/// A line of the list that only tells something: it takes no tap and shows no pressed layer.
+fn note(text: &str) -> ListItem {
+    let item = ListItem::new(ListItemKind::Plain, text, "").lines(ListItemLines::One).size(ListItemSize::Column).id(format!("note/{text}")).passive();
+    let pitch = item.height() + GAP;
+    item.pitch(pitch)
+}
+
 /// The headline of an event: its title, or Google's "(No title)".
 fn headline(event: &AgendaEvent) -> String {
     Some(plain(&event.title)).filter(|t| !t.is_empty()).unwrap_or_else(|| "(No title)".to_string())
@@ -174,6 +206,8 @@ fn row(event: &AgendaEvent, day: Date, tz: &TimeZone, hour24: bool, headline_lin
     let title = headline(event);
     let lines = ListItemLines::with_headline(headline_lines(&title));
     let item = ListItem::new(ListItemKind::LeadingText, title, plain(&event.location)).leading_text(lead, lead_sub).lines(lines).size(ListItemSize::Column);
+    // known by its event across a new agenda (a daily "Stand-up" repeats its title)
+    let item = if event.id.is_empty() { item } else { item.id(format!("event/{}", event.id)) };
     let item = match accent(event.color) {
         Some(rgb) => item.accent(rgb),
         None => item,
@@ -183,8 +217,9 @@ fn row(event: &AgendaEvent, day: Date, tz: &TimeZone, hour24: bool, headline_lin
 }
 
 /// The two lines at the start of an event's row on `day`: its start over its length; "Until"
-/// over the end for one that began on an earlier day; "All day" over "Day 2 of 3" for an
-/// all-day event of more days.
+/// over the end for one that began on an earlier day, "Until Wed" when it ends on another day (on
+/// the first line: the second keeps the whole time of a 12-hour clock in the leading column, 80
+/// wide); "All day" over "Day 2 of 3" for an all-day event of more days.
 fn leading(event: &AgendaEvent, day: Date, tz: &TimeZone, hour24: bool) -> (String, String) {
     if event.all_day {
         let days = all_day_days(event);
@@ -196,9 +231,8 @@ fn leading(event: &AgendaEvent, day: Date, tz: &TimeZone, hour24: bool) -> (Stri
     }
     if first_day(event, tz) < day {
         let end = zoned(event.end, tz);
-        let at = time_text(&end, hour24);
-        let at = if end.date() == day { at } else { format!("{} {at}", weekday_short(end.date())) };
-        return ("Until".to_string(), at);
+        let until = if end.date() == day { "Until".to_string() } else { format!("Until {}", weekday_short(end.date())) };
+        return (until, time_text(&end, hour24));
     }
     (time_text(&zoned(event.start, tz), hour24), duration_text(event.end.saturating_sub(event.start)))
 }
@@ -259,8 +293,13 @@ pub fn when_text(event: &AgendaEvent, today: Date, tz: &TimeZone, hour24: bool) 
 
 /// "Tue, Nov 17".
 fn day_text(day: Date) -> String {
+    format!("{}, {}", weekday_short(day), month_day(day))
+}
+
+/// "Nov 17".
+fn month_day(day: Date) -> String {
     let month = MONTHS[(day.month() - 1) as usize];
-    format!("{}, {}{} {}", weekday_short(day), &month[..1], month[1..].to_lowercase(), day.day())
+    format!("{}{} {}", &month[..1], month[1..].to_lowercase(), day.day())
 }
 
 /// "Tue".
@@ -461,11 +500,13 @@ mod tests {
         e
     }
 
+    /// A linked agenda, read at 08:00 UTC on 10 November.
     fn agenda(events: Vec<AgendaEvent>) -> Agenda {
         let mut a = Agenda::new();
         a.link = CalendarLink::CALENDAR_CONNECTED.into();
         a.calendar = "someone@example.com".to_string();
         a.events = events;
+        a.updated = at("2026-11-10T08:00:00Z").as_second();
         a
     }
 
@@ -567,9 +608,11 @@ mod tests {
         // a night shift from 22:00 to 10:00 sits above the morning's events, until its end
         let b = agenda(vec![event("Night shift", "2026-11-09T21:00:00Z", 12 * 60), event("Meeting", "2026-11-10T07:30:00Z", 30)]);
         assert_eq!(shown(&rows_of(&b, at("2026-11-10T07:00:00Z"), &tz, false))[1..], ["Until|10:00 AM|Night shift|", "8:30 AM|30 min|Meeting|"]);
-        // one that ends on a later day says which
-        let c = agenda(vec![event("Trip", "2026-11-09T08:00:00Z", 3 * 1440)]);
-        assert_eq!(shown(&rows_of(&c, at("2026-11-10T08:00:00Z"), &TimeZone::UTC, true))[1], "Until|Thu 08:00|Trip|");
+        // one that ends on a later day says which, on the first line: the second keeps the whole
+        // time, AM or PM too
+        let c = agenda(vec![event("Trip", "2026-11-09T08:00:00Z", 3 * 1440 + 270)]);
+        assert_eq!(shown(&rows_of(&c, at("2026-11-10T08:00:00Z"), &TimeZone::UTC, true))[1], "Until Thu|12:30|Trip|");
+        assert_eq!(shown(&rows_of(&c, at("2026-11-10T08:00:00Z"), &TimeZone::UTC, false))[1], "Until Thu|12:30 PM|Trip|");
     }
 
     #[test]
@@ -622,7 +665,43 @@ mod tests {
         let r = rows_of(&agenda(vec![event("Yoga", "2026-11-13T17:00:00Z", 60)]), now, &TimeZone::UTC, true);
         assert_eq!(shown(&r), ["TODAY|NOV 10", NOTHING_TODAY, "FRIDAY|NOV 13", "17:00|1h|Yoga|"]);
         assert_eq!(r[1].variant(), "state=default, kind=plain, lines=one, size=column");
+        assert!(!r[1].takes_taps(), "the free day's line takes no tap and shows no press");
+        assert!(r[3].takes_taps());
         assert_eq!(shown(&rows_of(&agenda(vec![]), now, &TimeZone::UTC, true)), ["TODAY|NOV 10", NOTHING_TODAY]);
+    }
+
+    #[test]
+    fn an_agenda_not_read_yet_shows_no_day() {
+        let now = at("2026-11-10T09:00:00Z");
+        // linked, not read yet: the events are unknown, not none
+        let mut a = agenda(vec![]);
+        a.updated = 0;
+        let r = rows(&a, now, &TimeZone::UTC, true, &one);
+        assert_eq!((shown(&r.items), r.events), (vec![READING.to_string()], vec![None]));
+        assert!(!r.items[0].takes_taps());
+        // the reads fail: it says so, still no day
+        a.read_failed = true;
+        assert_eq!(shown(&rows_of(&a, now, &TimeZone::UTC, true)), [NOT_READ]);
+        assert!(!rows_of(&a, now, &TimeZone::UTC, true)[0].takes_taps());
+        // read once, the reads fail after it: the days as they were read
+        a.updated = now.as_second() - 600;
+        assert_eq!(shown(&rows_of(&a, now, &TimeZone::UTC, true)), ["TODAY|NOV 10", NOTHING_TODAY]);
+    }
+
+    #[test]
+    fn rows_are_known_by_their_event_and_their_day() {
+        // a daily stand-up: the same title today and tomorrow, two events
+        let mut today = event("Stand-up", "2026-11-10T09:00:00Z", 15);
+        let mut tomorrow = event("Stand-up", "2026-11-11T09:00:00Z", 15);
+        (today.id, tomorrow.id) = ("su_20261110".to_string(), "su_20261111".to_string());
+        let r = rows_of(&agenda(vec![today, tomorrow]), at("2026-11-10T08:00:00Z"), &TimeZone::UTC, true);
+        let ids: Vec<Option<&str>> = r.iter().map(|row| row.id.as_deref()).collect();
+        assert_eq!(ids, [Some("day/2026-11-10"), Some("event/su_20261110"), Some("day/2026-11-11"), Some("event/su_20261111")]);
+        assert_eq!((r[1].title.as_str(), r[3].title.as_str()), ("Stand-up", "Stand-up"));
+        // an event without an id is known by its title
+        let mut no_id = event("Dentist", "2026-11-10T10:00:00Z", 30);
+        no_id.id.clear();
+        assert_eq!(rows_of(&agenda(vec![no_id]), at("2026-11-10T08:00:00Z"), &TimeZone::UTC, true)[1].id, None);
     }
 
     #[test]
@@ -642,7 +721,7 @@ mod tests {
         // the agenda's calendar is the account's address here (agenda()): no row carries it
         let a = agenda(vec![event("Dentist", "2026-11-10T10:00:00Z", 60), all_day("Trip", "2026-11-11", 2)]);
         let r = rows_of(&a, at("2026-11-10T09:00:00Z"), &TimeZone::UTC, true);
-        assert!(r.iter().all(|row| !format!("{row:?}").contains('@')), "{r:?}");
+        assert!(r.iter().all(|row| !format!("{row:?}").contains(&a.calendar)), "{r:?}");
         assert_eq!(shown(&r)[1], "10:00|1h|Dentist|");
     }
 
@@ -751,7 +830,10 @@ mod tests {
         assert_eq!(card(&a).map(|c| (c.title, c.qr.is_some())), Some(("Connect again".to_string(), true)));
         a.link = CalendarLink::CALENDAR_CONNECTED.into();
         assert_eq!(card(&a), None);
-        assert_eq!(rows_of(&a, at("2026-11-10T09:00:00Z"), &TimeZone::UTC, true).len(), 2, "a linked agenda has its rows");
+        // linked and not read yet: no day, the line that it is being read
+        assert_eq!(shown(&rows_of(&a, at("2026-11-10T09:00:00Z"), &TimeZone::UTC, true)), [READING], "a linked agenda not read yet");
+        a.updated = at("2026-11-10T08:59:00Z").as_second();
+        assert_eq!(shown(&rows_of(&a, at("2026-11-10T09:00:00Z"), &TimeZone::UTC, true)), ["TODAY|NOV 10", NOTHING_TODAY], "read: its days");
         // no address yet: no code to scan
         a.link = CalendarLink::CALENDAR_NOT_CONNECTED.into();
         a.setup_url.clear();
@@ -778,13 +860,24 @@ mod tests {
         let tz = TimeZone::UTC;
         let now = at("2026-11-10T09:00:00Z");
         let mut a = agenda(vec![]);
-        // not read yet
-        assert_eq!(status(Some(&a), true, now, &tz, true), "Reading the calendar");
+        // not read yet: the list says it
+        a.updated = 0;
+        assert_eq!(status(Some(&a), true, now, &tz, true), "");
         a.updated = now.as_second() - 60;
         assert_eq!(status(Some(&a), true, now, &tz, true), "", "fresh");
         a.updated = now.as_second() - 10 * 60;
         assert_eq!(status(Some(&a), true, now, &tz, true), "Last read 08:50");
         assert_eq!(status(Some(&a), false, now, &tz, false), "Last read 8:50 AM · no link to the house's data");
+        // read on another day: the weekday, a week ago and more the date
+        a.updated = at("2026-11-09T14:02:00Z").as_second();
+        assert_eq!(status(Some(&a), true, now, &tz, true), "Last read Mon 14:02");
+        a.updated = at("2026-11-04T14:02:00Z").as_second();
+        assert_eq!(status(Some(&a), true, now, &tz, false), "Last read Wed 2:02 PM");
+        a.updated = at("2026-11-03T14:02:00Z").as_second();
+        assert_eq!(status(Some(&a), true, now, &tz, true), "Last read Nov 3 14:02");
+        // the day is the zone's: 23:30 UTC on the 9th is the 10th in Berlin, today there
+        a.updated = at("2026-11-09T23:30:00Z").as_second();
+        assert_eq!(status(Some(&a), true, now, &TimeZone::posix(CET).unwrap(), true), "Last read 00:30");
         a.updated = 0;
         assert_eq!(status(Some(&a), false, now, &tz, true), "no link to the house's data");
         assert_eq!(status(None, false, now, &tz, true), "", "the card says it");
