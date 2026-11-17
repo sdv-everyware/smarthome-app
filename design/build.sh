@@ -3,8 +3,8 @@
 # (ui-lib's components-patch.js), then this app's patches: the Wi-Fi sheet (its content in the
 # library's #sheet), the dashboard's widgets (which use the library), the tabs and the screens
 # Rooms and Automations, the device sheet, the #sheet container with #panel, #prefs, #event and
-# #game (with the game button in the status row) and, for the designer, the sheets as frames with
-# a prototype. Usage, from anywhere:
+# #game (with the game button in the status row), the camera's offline state and full view
+# (#camera-view) and, for the designer, the sheets as frames with a prototype. Usage, from anywhere:
 #
 #   build.sh            # -> design/build/smarthome.fig (a build output, not in git)
 #   build.sh --dcf      # and data/smarthome.dcf from it (fig-to-dcf.sh, the previous one kept)
@@ -30,10 +30,11 @@ rt "$B/steps/5.fig" "$B/steps/6.fig" "$HERE/panel-patch.js"
 rt "$B/steps/6.fig" "$B/steps/7.fig" "$HERE/prefs-patch.js"
 rt "$B/steps/7.fig" "$B/steps/8.fig" "$HERE/event-patch.js"
 rt "$B/steps/8.fig" "$B/steps/9.fig" "$HERE/game-patch.js"
-rt "$B/steps/9.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
+rt "$B/steps/9.fig" "$B/steps/10.fig" "$HERE/camera-patch.js"
+rt "$B/steps/10.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
 echo "built $B/smarthome.fig"
 if [ "${1:-}" = --dcf ]; then
-    DCF_CHECK='#home/title' \
+    DCF_CHECK='#home/title #camera/feed #camera/live #camera/offline #camera/open #camera-view #camera-view/picture #camera-view/offline #camera-view/live #camera-view/close' \
         "$TOP/vendor/sdv-everyware/everyware/scripts/fig-to-dcf.sh" "$B/smarthome.fig" "$HERE/../data/smarthome.dcf"
 fi
 # the last line: the file to give the user for a review

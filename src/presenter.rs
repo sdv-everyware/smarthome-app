@@ -33,6 +33,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.climate_target = format!("Target · {}° indoors", d.setpoint);
         model.humidity_adjust = slot("#climate/humidity-adjust", &d.humidity_adjust);
         model.camera_open = slot("#camera/open", &d.open_feed);
+        present_camera(model, state);
         model.entryway_light = slot("#entryway/light", &d.light);
         model.entryway_state = if d.light.value { "On" } else { "Off" }.to_string();
         model.bedroom_dimmer = slot("#bedroom/dimmer", &d.dimmer);
@@ -194,6 +195,23 @@ fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: b
     model.weather_t1 = label(0);
     model.weather_t2 = label(12);
     model.weather_t3 = label(23);
+}
+
+/// The camera (camera.rs): the tile's zone, chip and offline state, and the full view with its
+/// zone while it is open.
+fn present_camera(model: &mut UiModel, state: &State) {
+    let camera = &state.camera;
+    let shown = |b: bool| if b { DisplayState::Visible } else { DisplayState::Gone };
+    // camera-app draws the zones while it is connected; without it the panel says offline
+    let zones = crate::config::wayland_zones() && camera.zones();
+    model.camera_zone = zones;
+    model.camera_live = shown(camera.link.on);
+    model.camera_offline = shown(!zones);
+    model.camera_view = shown(camera.open);
+    model.camera_view_zone = zones && camera.open;
+    model.camera_view_offline = shown(camera.open && !zones);
+    model.camera_view_live = shown(camera.open && camera.link.on);
+    model.camera_view_close = slot("#camera-view/close", &camera.close);
 }
 
 /// The game's dialog: the card from below, the scrim, the zone of the game's picture while the

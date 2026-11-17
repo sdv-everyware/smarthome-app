@@ -52,6 +52,9 @@ pub struct State {
     /// The game (#game, the library's #sheet as a dialog), opened by the status row's game
     /// button: the game's picture and its keys (game.rs).
     pub game: GamePanel,
+    /// The camera (camera.rs): camera-app's link and the full view (#camera-view), opened by the
+    /// tile's open button.
+    pub camera: crate::camera::CameraView,
     /// What the panel's browser shows (browser.rs).
     #[cfg(browser)]
     pub browser: BrowserPanel,

@@ -58,6 +58,8 @@ pub enum HomeAction {
     /// How the page in the panel's browser is doing (browser.rs events).
     #[cfg(browser)]
     Browser(crate::browser::BrowserEvent),
+    /// What camera-app said on its control socket (camera.rs).
+    Camera(crate::camera::Event),
 }
 
 impl StateAction<State, ()> for HomeAction {
@@ -83,6 +85,7 @@ impl StateAction<State, ()> for HomeAction {
                     state.browser.shown();
                 }
             }
+            HomeAction::Camera(event) => state.camera.link.apply(*event),
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
             HomeAction::Agenda(agenda) => state.agenda.set(agenda.clone(), &state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now()),
             HomeAction::HouseLink(up) => state.house_link = *up,
@@ -98,6 +101,8 @@ impl StateAction<State, ()> for HomeAction {
                 follow_devices(&mut state.dash, &mut state.matter_pending, &reported);
             }
             HomeAction::MatterResult(result) => on_matter_result(&mut state.matter_pending, &state.devices, result),
+            // the camera's full view covers the screen: it takes every gesture while open
+            HomeAction::Gesture(node, gesture) if state.camera.open => on_camera_view(&mut state.camera, node, *gesture),
             #[cfg(browser)]
             HomeAction::Gesture(node, gesture) if state.panel.is_open() => {
                 // the panel while it is open: a tap on the scrim or on close closes it, the card
@@ -126,6 +131,13 @@ impl StateAction<State, ()> for HomeAction {
                 // the game button opens the game; the game goes on where it paused
                 if clicked(&mut state.dash.game, *gesture) {
                     state.game.open(crate::game::running(), &state.sizes);
+                }
+            }
+            HomeAction::Gesture(node, gesture) if node == "#camera/open" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+                // the tile's open button: the camera live over the whole screen
+                if clicked(&mut state.dash.open_feed, *gesture) {
+                    log::info!("smarthome: camera: the full view opened");
+                    state.camera.open();
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -286,6 +298,16 @@ fn on_event(panel: &mut crate::agenda_card::EventPanel, node: &str, gesture: Ges
 
 fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
     button.on(gesture) == Some(ButtonEvent::Clicked)
+}
+
+/// The camera's full view while it is open: its close button closes it (the camera goes back
+/// to stills). The picture is camera-app's zone: the looper hands its touches to camera-app,
+/// not here; the rest of the screen under the view takes nothing.
+fn on_camera_view(view: &mut crate::camera::CameraView, node: &str, gesture: Gesture) {
+    if node == "#camera-view/close" && clicked(&mut view.close, gesture) {
+        log::info!("smarthome: camera: the full view closed");
+        view.close();
+    }
 }
 
 /// The game's dialog while it is open: the scrim and close close it and let every key go; a
@@ -462,11 +484,6 @@ fn on_dashboard(d: &mut Dashboard, node: &str, gesture: Gesture) -> Option<Contr
         "#climate/humidity-adjust" => {
             if clicked(&mut d.humidity_adjust, gesture) {
                 log::info!("smarthome: adjust humidity");
-            }
-        }
-        "#camera/open" => {
-            if clicked(&mut d.open_feed, gesture) {
-                log::info!("smarthome: open the camera feed");
             }
         }
         "#entryway/light" => {
