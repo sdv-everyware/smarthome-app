@@ -53,6 +53,8 @@ pub enum HomeAction {
     MatterDevices(MatterDevices),
     /// The Matter bundle's answer to a command of the screen (screen_binder.rs).
     MatterResult(MatterCommandResult),
+    /// The calendar bundle's answer to a command of the event's panel (screen_binder.rs).
+    CalendarResult(crate::agenda_card::CalendarAnswer),
     /// A settings group of the device with its values in force (user_preferences).
     Settings(user_preferences_api::change_notifier::OnSettingsChangeRequest),
     /// How the page in the panel's browser is doing (browser.rs events).
@@ -106,6 +108,7 @@ impl StateAction<State, ()> for HomeAction {
                 follow_devices(&mut state.dash, &mut state.matter_pending, &reported);
             }
             HomeAction::MatterResult(result) => on_matter_result(&mut state.matter_pending, &state.devices, result),
+            HomeAction::CalendarResult(answer) => state.agenda.event.answered(answer, Instant::now()),
             // the camera's full view covers the screen: it takes every gesture while open
             HomeAction::Gesture(node, gesture) if state.camera.is_open() => on_camera_view(&mut state.camera, node, *gesture),
             #[cfg(browser)]
@@ -125,7 +128,13 @@ impl StateAction<State, ()> for HomeAction {
             }
             HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
             HomeAction::Gesture(node, gesture) if state.game.sheet.is_open() => on_game(&mut state.game, node, *gesture),
-            HomeAction::Gesture(node, gesture) if state.agenda.event.is_open() => on_event(&mut state.agenda.event, node, *gesture),
+            HomeAction::Gesture(node, gesture) if state.agenda.event.is_open() => {
+                // the panel's steps; a change goes to the calendar bundle
+                if let Some(command) = state.agenda.event.on(node, *gesture, Instant::now()) {
+                    let went_out = screen_binder::send_calendar_command(command);
+                    state.agenda.event.sent(went_out);
+                }
+            }
             HomeAction::Gesture(node, gesture) if node == "#settings" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
@@ -166,6 +175,7 @@ impl StateAction<State, ()> for HomeAction {
             HomeAction::Gesture(node, gesture) if state.wifi.form.is_open() => {
                 on_sheet(&mut state.wifi, &mut state.osk, node, *gesture)
             }
+            HomeAction::Gesture(node, gesture) if node == "#agenda/account" => state.agenda.on_account(*gesture),
             HomeAction::Gesture(node, gesture) if node == "#agenda/list" || node.starts_with("#agenda/list/") => {
                 // a drag or a fling scrolls the agenda; a tap on an event opens its panel
                 state.agenda.on_list(row_of("#agenda/list", node), *gesture, Instant::now());
@@ -181,8 +191,10 @@ impl StateAction<State, ()> for HomeAction {
         }
         // the screen's keyboard follows the focus (every form of the screen, or'ed)
         state.osk.follow(state.wifi.form.focused().is_some());
-        // the agenda's rows follow the clock (a new minute), the zone and the clock's format
+        // the agenda's rows follow the clock (a new minute), the zone and the clock's format; the
+        // event's panel stops waiting for an answer that does not come
         state.agenda.follow(&state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now());
+        state.agenda.event.follow(state.house_link, Instant::now());
         // an open sheet shows the device as it is now (the dashboard or a bundle changed it)
         if state.device.container.is_open() {
             state.device.refresh(&state.devices, &state.dash);
@@ -288,17 +300,6 @@ fn browser_timeout(state: &mut State) {
     if state.browser.loading_since().is_some_and(|t| t.elapsed() > crate::state::PAGE_TIMEOUT) {
         log::warn!("smarthome: browser: no word from the page in {:?}, showing it", crate::state::PAGE_TIMEOUT);
         state.browser.shown();
-    }
-}
-
-/// An event's panel while it is open: the scrim and close close it, a drag on the body scrolls
-/// it, the card takes the rest.
-fn on_event(panel: &mut crate::agenda_card::EventPanel, node: &str, gesture: Gesture) {
-    let scrim = node == "#event/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
-    if scrim || (node == "#event/close" && clicked(&mut panel.close, gesture)) {
-        panel.close();
-    } else if node == "#event/scroll" {
-        panel.on_body(gesture, Instant::now());
     }
 }
 

@@ -41,6 +41,10 @@ impl ICommandSink for Sink {
         println!("a settings change reached the probe's sink");
         Ok(())
     }
+    fn onCalendarCommand(&self, _command: &[u8]) -> binder::Result<()> {
+        println!("a calendar command reached the probe's sink");
+        Ok(())
+    }
 }
 
 fn agent() -> Strong<dyn IIdentityAgent> {
@@ -65,6 +69,7 @@ fn calls() {
     show("publishMatterDevices", screen.publishMatterDevices(GARBAGE));
     show("publishMatterResult", screen.publishMatterResult("on-off", 1, 1, GARBAGE));
     show("publishAgenda", screen.publishAgenda(GARBAGE));
+    show("publishCalendarResult", screen.publishCalendarResult("delete", "probe", GARBAGE));
     let sink = BnCommandSink::new_binder(Sink, BinderFeatures::default());
     show("subscribeCommands", screen.subscribeCommands(&sink));
 }

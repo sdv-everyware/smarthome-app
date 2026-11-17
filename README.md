@@ -4,7 +4,11 @@ The smart home panel on harry (1920 x 1080): the time and the weather, the rooms
 lights, a dimmer, the fan, the climate), the camera (a still every few seconds in its tile, live
 over the whole screen from its open button; drawn by the camera-app process into two zones,
 `src/camera.rs`), the intercom, the front door, the agenda (a tap on an event shows its details at
-the right), the Wi-Fi settings and the settings in sheets,
+the right, with a QR code of its meeting and of its place for the phone (the host the phone will
+open under the code; a code only for an https link that reads as the host it opens), and, when
+the owner gave the panel write access, Accept, Maybe and Decline on an invitation and Delete on
+the account's own event; the agenda's header button opens the calendar's link: Change access and
+Disconnect), the Wi-Fi settings and the settings in sheets,
 and a game in a dialog: DOOM, run by the doom-app process, its picture in a zone of the dialog
 and the dialog's buttons its keys over it (`src/game.rs`). The status row has the game's button
 only in an image with the game (`ro.vendor.everyware.game=true`, set by doom-app's

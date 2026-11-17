@@ -260,11 +260,18 @@ const { C, FONT } = helpers;
   A.text(backup, 'Heading', 24, 20, AG_W, 28, 'Backup: Scenes and home activity (not on the screen)', 17, FONT.semibold, C.ink);
   scenes.parentIndex = { guid: backup.guid, position: '!' };
   scenes.transform = at(24, 72);
-  // the heading, and at its right how old the agenda is when it is not fresh (#agenda/status: the
-  // app writes it, empty while the agenda is fresh; agenda.rs status)
+  // the heading, at its right how old the agenda is when it is not fresh (#agenda/status: the app
+  // writes it, empty while the agenda is fresh; agenda.rs status), and at the right end the
+  // calendar's link (#agenda/account, a tonal icon button the app shows while a calendar is
+  // linked; it opens the event's panel on the link). The button's touch target (72) is centred on
+  // the header's 28, its circle at the header's right edge; it reaches into the gap above the list.
   const header = frame(agenda, 'Agenda header', 0, 0, AG_W, HEAD_H);
+  const accountButton = v('#icon-button', 'kind=tonal, state=default, icon=settings-2, size=compact');
+  const ACC_X = AG_W - 24 - accountButton.size.x / 2;
   A.text(header, 'Agenda heading', 0, 0, 160, HEAD_H, 'Agenda', 23, FONT.semibold, C.ink);
-  A.text(header, '#agenda/status', 160, 0, AG_W - 160 - SB_GAP - SB_W, HEAD_H, 'Last read 14:02 · no link to the house\'s data', 15, FONT.regular, C.ink2, 'RIGHT', 'CENTER', { maxLines: 1, textTruncation: 'ENDING' });
+  A.text(header, '#agenda/status', 160, 0, AG_W - 160 - 60, HEAD_H, 'Last read 14:02 · no link to the house\'s data', 15, FONT.regular, C.ink2, 'RIGHT', 'CENTER', { maxLines: 1, textTruncation: 'ENDING' });
+  const account = frame(header, '#agenda/account', ACC_X, (HEAD_H - accountButton.size.y) / 2, accountButton.size.x, accountButton.size.y);
+  instance(account, '#agenda/account/preview', 0, 0, accountButton);
   const body = frame(agenda, 'Agenda content', 0, HEAD_H + HEAD_GAP, AG_W, LIST_H);
   const list = frame(body, '#agenda/list', 0, 0, LIST_W, LIST_H, { frameMaskDisabled: false });
   // the preview: days as the app shows them (texts and the bars' colours as overrides)

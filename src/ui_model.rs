@@ -315,6 +315,8 @@ ui_model! {
     agenda_link_title: String = "#agenda/link-title";
     agenda_link_hint: String = "#agenda/link-hint";
     agenda_status: String = "#agenda/status";
+    // the header's button that opens the calendar's link in the event's panel, while one is linked
+    agenda_account: Slot = "#agenda/account" ["SlotCustomizer"];
 
     // An agenda event's panel: #event, the library's #sheet (design/event-patch.js) with
     // #event-content in it, at the right edge; the card and the scrim moved by the app, as #prefs.
@@ -335,6 +337,41 @@ ui_model! {
     event_description_display: DisplayState = "#event/description";
     event_body: Scrolled = "#event/body" ["ScrolledCustomizer"] = Scrolled::default();
     _event_scroll_tap: () = "#event/scroll" interactive;
+    // The panel's step is the content's variant (step=details, qr, confirm, calendar), switched
+    // without an animation, as #wifi/content. The details: Accept, Maybe and Decline in the body's
+    // column under the place, out of it (display gone) when the event takes no answer; the
+    // bottom row Join on phone and Directions (a row that closes up), Delete at the right.
+    event_step: Variant = "#event/content" = Variant("step=details".to_string());
+    event_step_animation: AnimationOverride = "#event/content";
+    event_rsvp: Slot = "#event/rsvp" ["SlotCustomizer"];
+    event_rsvp_display: DisplayState = "#event/rsvp";
+    event_join: Slot = "#event/join" ["SlotCustomizer"];
+    event_join_display: DisplayState = "#event/join";
+    event_directions: Slot = "#event/directions" ["SlotCustomizer"];
+    event_directions_display: DisplayState = "#event/directions";
+    event_delete: Slot = "#event/delete" ["SlotCustomizer"];
+    event_delete_display: DisplayState = "#event/delete";
+    // what the panel waits for and why a change failed, above the buttons of every step
+    event_status: String = "#event/status";
+    event_status_display: DisplayState = "#event/status";
+    event_error: String = "#event/error";
+    event_error_display: DisplayState = "#event/error";
+    // the QR step: what the code is for, the code (a picture the app makes), the host the phone
+    // will open, Back
+    event_qr_title: String = "#event/qr-title";
+    event_qr: Picture = "#event/qr" ["PictureCustomizer"];
+    event_qr_host: String = "#event/qr-host";
+    event_back: Slot = "#event/back" ["SlotCustomizer"];
+    // the confirmation step: the question, a line (out of the step when empty), Cancel, the action
+    event_confirm_title: String = "#event/confirm-title";
+    event_confirm_text: String = "#event/confirm-text";
+    event_confirm_text_display: DisplayState = "#event/confirm-text";
+    event_cancel: Slot = "#event/cancel" ["SlotCustomizer"];
+    event_confirm: Slot = "#event/confirm" ["SlotCustomizer"];
+    // the calendar's link: the access Google granted in words, Change access, Disconnect
+    event_access: String = "#event/access";
+    event_change_access: Slot = "#event/change-access" ["SlotCustomizer"];
+    event_disconnect: Slot = "#event/disconnect" ["SlotCustomizer"];
     wifi_scrollbar: Slot = "#wifi/scrollbar" ["SlotCustomizer"];
     wifi_rescan: Slot = "#wifi/rescan" ["SlotCustomizer"];
     wifi_ssid: String = "#wifi/ssid";
