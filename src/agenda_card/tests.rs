@@ -280,7 +280,7 @@ fn opened(e: AgendaEvent) -> AgendaCard {
     let t = Instant::now();
     c.on_list(Some(1), Gesture::down(0.0, 10.0), t);
     c.on_list(Some(1), Gesture::up(0.0, 10.0), t);
-    assert!(c.event.is_open() && c.event.step == EventStep::Details);
+    assert!(c.event.is_open() && c.event.step() == EventStep::Details);
     c
 }
 
@@ -370,11 +370,11 @@ fn a_deletion_is_confirmed_first() {
     assert!(!c.event.details.respond, "no answers on the account's own event");
     assert_eq!(press(&mut c, "#event/rsvp/#segmented/segment-1"), None);
     assert_eq!(press(&mut c, "#event/delete"), None, "Delete asks first");
-    assert_eq!((c.event.step, c.event.confirm_texts()), (EventStep::Confirm, ("Delete this event?", "Only this occurrence.")));
+    assert_eq!((c.event.step(), c.event.confirm_texts()), (EventStep::Confirm, ("Delete this event?", "Only this occurrence.")));
     assert_eq!(c.event.confirm.label, "Delete");
     // Cancel: back to the details, nothing sent
     assert_eq!(press(&mut c, "#event/cancel"), None);
-    assert_eq!(c.event.step, EventStep::Details);
+    assert_eq!(c.event.step(), EventStep::Details);
     press(&mut c, "#event/delete");
     let command = press(&mut c, "#event/confirm").expect("a command");
     assert_eq!(command.delete().event_id, "mine_20261110T090000Z");
@@ -392,10 +392,10 @@ fn a_deletion_is_confirmed_first() {
 fn nothing_is_offered_that_the_event_does_not_allow() {
     let mut c = opened(event("plain", "2026-11-10T09:00:00Z", 30));
     assert_eq!(press(&mut c, "#event/delete"), None);
-    assert_eq!(c.event.step, EventStep::Details, "no confirmation for an event the account may not delete");
+    assert_eq!(c.event.step(), EventStep::Details, "no confirmation for an event the account may not delete");
     assert_eq!(press(&mut c, "#event/rsvp/#segmented/segment-1"), None);
     assert_eq!(press(&mut c, "#event/join"), None);
-    assert_eq!(c.event.step, EventStep::Details, "no code without a meeting link");
+    assert_eq!(c.event.step(), EventStep::Details, "no code without a meeting link");
 }
 
 /// The tests that make the event's QR picture: one at a time (the picture's key is global).
@@ -409,16 +409,115 @@ fn join_and_directions_show_a_code_for_the_phone() {
     e.location = "Main Street 12".to_string();
     let mut c = opened(e);
     press(&mut c, "#event/join");
-    assert_eq!((c.event.step, c.event.qr_title.as_str()), (EventStep::Qr, "Join on phone"));
+    assert_eq!((c.event.step(), c.event.qr_title.as_str()), (EventStep::Qr, "Join on phone"));
     assert!(c.event.qr_picture().is_some());
     press(&mut c, "#event/back");
-    assert_eq!(c.event.step, EventStep::Details);
-    assert!(c.event.qr_picture().is_none() && images::get(EVENT_QR_KEY).is_none(), "the picture goes with its step");
+    assert_eq!(c.event.step(), EventStep::Details);
     press(&mut c, "#event/directions");
-    assert_eq!((c.event.step, c.event.qr_title.as_str()), (EventStep::Qr, "Directions"));
+    assert_eq!((c.event.step(), c.event.qr_title.as_str()), (EventStep::Qr, "Directions"));
     assert_eq!(c.event.qr, "https://www.google.com/maps/search/?api=1&query=Main%20Street%2012");
     c.event.close();
     assert!(images::get(EVENT_QR_KEY).is_none());
+}
+
+#[test]
+fn the_code_stays_while_its_page_slides_out_and_goes_with_the_panel() {
+    let _one = EVENT_QR_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut e = event("meet", "2026-11-10T09:00:00Z", 30);
+    e.meeting_url = "https://meet.google.com/abc-defg-hij".to_string();
+    e.location = "Main Street 12".to_string();
+    let mut c = opened(e);
+    press(&mut c, "#event/join");
+    let join = c.event.qr_picture().map(|p| p.id);
+    assert!(join.is_some());
+    // Back: the QR page is drawn while it slides out, its picture with it
+    press(&mut c, "#event/back");
+    assert_eq!(c.event.step(), EventStep::Details);
+    assert_eq!(c.event.qr_picture().map(|p| p.id), join, "the picture stays after its step");
+    assert!(images::get(EVENT_QR_KEY).is_some());
+    // the same code again: nothing made again
+    press(&mut c, "#event/join");
+    assert_eq!(c.event.qr_picture().map(|p| p.id), join);
+    // the next code replaces it under the same key
+    press(&mut c, "#event/back");
+    press(&mut c, "#event/directions");
+    assert_eq!(c.event.qr, "https://www.google.com/maps/search/?api=1&query=Main%20Street%2012");
+    assert!(c.event.qr_picture().is_some());
+    // the panel closes: the picture goes
+    c.event.close();
+    assert!(c.event.qr_picture().is_none() && images::get(EVENT_QR_KEY).is_none());
+}
+
+/// The design's distance between two of the panel's pages (event-patch.js: the content's width).
+const PAGE_W: f32 = 880.0;
+
+fn page(c: &AgendaCard, step: EventStep) -> everyware_ui::screens::ScreenTarget {
+    c.event.pages.page(step as usize, EVENT_EFFECT, PAGE_W)
+}
+
+#[test]
+fn the_steps_slide_in_from_the_right_and_back_out() {
+    let _one = EVENT_QR_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+    let mut e = event("mine", "2026-11-10T09:00:00Z", 30);
+    e.meeting_url = "https://meet.google.com/abc-defg-hij".to_string();
+    e.can_delete = true;
+    let mut c = opened(e);
+    // the panel opens on the details: nothing slides, the other pages wait on the right
+    assert_eq!(c.event.pages.previous, None);
+    assert_eq!((page(&c, EventStep::Details).offset, page(&c, EventStep::Details).offset_transition), (Some(0.0), None));
+    assert_eq!((page(&c, EventStep::Qr).offset, page(&c, EventStep::Qr).opacity), (Some(PAGE_W), 0.0));
+    // Join: the code comes from the right, the details leave to the left, in the pages' time
+    press(&mut c, "#event/join");
+    let (qr, details) = (page(&c, EventStep::Qr), page(&c, EventStep::Details));
+    assert_eq!((c.event.step(), qr.offset, qr.opacity, details.offset), (EventStep::Qr, Some(0.0), 100.0, Some(-PAGE_W)));
+    assert_eq!(qr.offset_transition.map(|t| t.duration.as_millis()), Some(300));
+    // the details go when they are out (drawn while they slide)
+    assert_eq!((details.opacity, details.opacity_transition.map(|t| t.delay.as_millis())), (0.0, Some(300)));
+    // a tap on a page that does not show does nothing: only the step's own controls answer
+    for other in ["#event/delete", "#event/join", "#event/cancel", "#event/confirm", "#event/disconnect", "#event/change-access"] {
+        assert_eq!(press(&mut c, other), None);
+        assert_eq!(c.event.step(), EventStep::Qr, "{other}");
+    }
+    // Back: the details come back from the left, the code leaves to the right
+    press(&mut c, "#event/back");
+    assert_eq!((c.event.step(), page(&c, EventStep::Details).offset, page(&c, EventStep::Qr).offset), (EventStep::Details, Some(0.0), Some(PAGE_W)));
+    // Delete: the confirmation comes one width from the right over the pages between, which
+    // stay hidden
+    press(&mut c, "#event/delete");
+    assert_eq!((c.event.step(), page(&c, EventStep::Confirm).offset, page(&c, EventStep::Details).offset), (EventStep::Confirm, Some(0.0), Some(-PAGE_W)));
+    assert_eq!(page(&c, EventStep::Confirm).offset_transition.map(|t| t.duration.as_millis()), Some(300));
+    for between in [EventStep::Qr, EventStep::Calendar] {
+        assert_eq!((page(&c, between).opacity, page(&c, between).opacity_transition), (0.0, None), "{between:?}");
+    }
+    // Cancel: back to the details from the left
+    press(&mut c, "#event/cancel");
+    assert_eq!((c.event.step(), page(&c, EventStep::Details).offset, page(&c, EventStep::Confirm).offset), (EventStep::Details, Some(0.0), Some(PAGE_W)));
+    // a panel closed on a step opens again on the details, nothing slides
+    press(&mut c, "#event/delete");
+    c.event.close();
+    tap_row(&mut c, 1);
+    assert_eq!((c.event.step(), c.event.pages.previous, page(&c, EventStep::Details).offset_transition), (EventStep::Details, None, None));
+    c.event.close();
+}
+
+#[test]
+fn the_calendar_s_link_opens_on_its_page_and_its_confirmation_slides_in() {
+    let mut c = card();
+    c.set(linked(vec![]), "UTC", true, at("2026-11-10T08:00:00Z"));
+    c.on_account(Gesture::DOWN);
+    c.on_account(Gesture::UP);
+    // the panel opens on the link's page: it is there at once, nothing slides
+    let link = page(&c, EventStep::Calendar);
+    assert_eq!((c.event.step(), c.event.pages.previous), (EventStep::Calendar, None));
+    assert_eq!((link.offset, link.opacity, link.offset_transition), (Some(0.0), 100.0, None));
+    assert_eq!((page(&c, EventStep::Details).opacity, page(&c, EventStep::Confirm).offset), (0.0, Some(PAGE_W)));
+    // Disconnect: the confirmation comes from the right, the link leaves to the left
+    press(&mut c, "#event/disconnect");
+    assert_eq!((c.event.step(), page(&c, EventStep::Confirm).offset, page(&c, EventStep::Calendar).offset), (EventStep::Confirm, Some(0.0), Some(-PAGE_W)));
+    assert_eq!(page(&c, EventStep::Confirm).offset_transition.map(|t| t.duration.as_millis()), Some(300));
+    // Cancel: the link comes back from the left
+    press(&mut c, "#event/cancel");
+    assert_eq!((c.event.step(), page(&c, EventStep::Calendar).offset, page(&c, EventStep::Confirm).offset), (EventStep::Calendar, Some(0.0), Some(PAGE_W)));
 }
 
 #[test]
@@ -433,13 +532,13 @@ fn the_calendar_s_link_from_the_header() {
     c.set(agenda, "UTC", true, at("2026-11-10T08:00:00Z"));
     c.on_account(Gesture::DOWN);
     c.on_account(Gesture::UP);
-    assert!(c.event.is_open() && c.event.step == EventStep::Calendar);
+    assert!(c.event.is_open() && c.event.step() == EventStep::Calendar);
     assert_eq!(c.event.access, "The panel may read this calendar.");
     // Change access and Disconnect: both a confirmation, then the unlink
     assert_eq!(press(&mut c, "#event/change-access"), None);
-    assert_eq!((c.event.step, c.event.confirm.label.as_str(), c.event.confirm_texts().0), (EventStep::Confirm, "Change access", "Change the access?"));
+    assert_eq!((c.event.step(), c.event.confirm.label.as_str(), c.event.confirm_texts().0), (EventStep::Confirm, "Change access", "Change the access?"));
     press(&mut c, "#event/cancel");
-    assert_eq!(c.event.step, EventStep::Calendar, "Cancel goes back to the link");
+    assert_eq!(c.event.step(), EventStep::Calendar, "Cancel goes back to the link");
     press(&mut c, "#event/disconnect");
     assert_eq!(c.event.confirm_texts().0, "Disconnect the calendar?");
     let command = press(&mut c, "#event/confirm").expect("a command");
@@ -561,13 +660,13 @@ fn the_code_says_which_host_the_phone_opens() {
     e.meeting_url = "https://meet.google.com/abc-defg-hij?pwd=1".to_string();
     let mut c = opened(e);
     press(&mut c, "#event/join");
-    assert_eq!((c.event.step, c.event.qr_host.as_str()), (EventStep::Qr, "meet.google.com"));
+    assert_eq!((c.event.step(), c.event.qr_host.as_str()), (EventStep::Qr, "meet.google.com"));
     // a link whose host is not plain letters gets no code (it stays text in the details)
     let mut e = event("odd", "2026-11-10T09:00:00Z", 30);
     e.meeting_url = "https://gооgle.com/meet".to_string();
     let mut d = opened(e);
     press(&mut d, "#event/join");
-    assert_eq!(d.event.step, EventStep::Details);
+    assert_eq!(d.event.step(), EventStep::Details);
     assert!(d.event.qr_picture().is_none());
     c.event.close();
 }

@@ -3,5 +3,5 @@ data/*.fetch.log
 data/*.dcf.*
 .vscode/
 
-# design/build.sh output: built again from the patches, opened in Figma from here
+# design/build.sh's steps, built again from the patches; its result, design/smarthome.fig, is in git
 design/build/

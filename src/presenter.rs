@@ -7,6 +7,7 @@ use everyware_ui::symbol::Symbol;
 use customizations::render_customizations::DisplayState;
 use everyware_ui::{list, scrollbar, slot, slot_shown, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
+use crate::agenda_card::{EventStep, EVENT_EFFECT};
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
 use crate::ui_model::UiModel;
@@ -158,10 +159,18 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         (model.event_link, model.event_link_display) = (d.link.clone(), shown(&d.link));
         (model.event_description, model.event_description_display) = (d.description.clone(), shown(&d.description));
         model.event_body = Scrolled::new(0.0, &event.body);
-        // the step, and what each step offers (agenda_card.rs EventPanel)
+        // the steps are pages side by side in the design: each slides by the first one's width
+        // from the first one's place (as the settings' pages)
+        let first = state.sizes.part("#event-content", "state=default", "#event/page-details");
+        let (x, width) = first.map_or((0.0, 0.0), |f| (f.x, f.width));
+        let page = |step: EventStep| ScreenView::new(event.pages.page(step as usize, EVENT_EFFECT, width), x);
+        model.event_page_details = page(EventStep::Details);
+        model.event_page_qr = page(EventStep::Qr);
+        model.event_page_calendar = page(EventStep::Calendar);
+        model.event_page_confirm = page(EventStep::Confirm);
+        // what each step offers (agenda_card.rs EventPanel)
         let gone = |on: bool| if on { DisplayState::Visible } else { DisplayState::Gone };
         let offers = &event.offers;
-        model.event_step = Variant(event.step.variant().to_string());
         (model.event_rsvp, model.event_rsvp_display) = (slot("#event/rsvp", &event.rsvp), gone(d.respond));
         (model.event_join, model.event_join_display) = (slot("#event/join", &event.join), gone(offers.join.is_some()));
         (model.event_directions, model.event_directions_display) = (slot("#event/directions", &event.directions), gone(offers.directions.is_some()));

@@ -19,7 +19,8 @@ house's data comes from the dashboard bundle over binder (`src/screen_binder.rs`
 
 `data/smarthome.dcf` is the document the app ships. `design/*-patch.js` draw the dashboard, the
 sheets, the keyboard and the screens on the Library with the kiwi tools of everyware;
-`design/build.sh` builds the `.fig` for a review in Figma and the `.dcf`. The names of the
+`design/build.sh` builds `design/smarthome.fig`, the document to open in Figma, and the
+`.dcf`; both are in git and change together. The names of the
 layers (`#home/*`, `#device/*`, `#panel/*`, `#wifi/*`, ...) are the contract with `src/ui_model.rs`:
 rename both or neither.
 

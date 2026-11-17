@@ -337,12 +337,15 @@ ui_model! {
     event_description_display: DisplayState = "#event/description";
     event_body: Scrolled = "#event/body" ["ScrolledCustomizer"] = Scrolled::default();
     _event_scroll_tap: () = "#event/scroll" interactive;
-    // The panel's step is the content's variant (step=details, qr, confirm, calendar), switched
-    // without an animation, as #wifi/content. The details: Accept, Maybe and Decline in the body's
-    // column under the place, out of it (display gone) when the event takes no answer; the
-    // bottom row Join on phone and Directions (a row that closes up), Delete at the right.
-    event_step: Variant = "#event/content" = Variant("step=details".to_string());
-    event_step_animation: AnimationOverride = "#event/content";
+    // The panel's steps are the content's pages (the details, the QR code, the calendar's link,
+    // the confirmation): they slide (agenda_card.rs EventStep, ui-lib Pages), the details shown
+    // at the start. The details: Accept, Maybe and Decline in the body's column under the place,
+    // out of it (display gone) when the event takes no answer; the bottom row Join on phone and
+    // Directions (a row that closes up), Delete at the right.
+    event_page_details: ScreenView = "#event/page-details" ["ScreenCustomizer"] = ScreenView { opacity: Meter::new(100.0, None), x: None };
+    event_page_qr: ScreenView = "#event/page-qr" ["ScreenCustomizer"] = ScreenView::default();
+    event_page_calendar: ScreenView = "#event/page-calendar" ["ScreenCustomizer"] = ScreenView::default();
+    event_page_confirm: ScreenView = "#event/page-confirm" ["ScreenCustomizer"] = ScreenView::default();
     event_rsvp: Slot = "#event/rsvp" ["SlotCustomizer"];
     event_rsvp_display: DisplayState = "#event/rsvp";
     event_join: Slot = "#event/join" ["SlotCustomizer"];
@@ -351,7 +354,8 @@ ui_model! {
     event_directions_display: DisplayState = "#event/directions";
     event_delete: Slot = "#event/delete" ["SlotCustomizer"];
     event_delete_display: DisplayState = "#event/delete";
-    // what the panel waits for and why a change failed, above the buttons of every step
+    // what the panel waits for and why a change failed, above the buttons of the steps (the same
+    // names on three pages: set once for all)
     event_status: String = "#event/status";
     event_status_display: DisplayState = "#event/status";
     event_error: String = "#event/error";

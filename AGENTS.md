@@ -24,8 +24,8 @@ Short version of the rules:
 
 The design is in this repository: `design/` (the panel's patches, `build.sh`, the designer's export
 in `source/`, the app's own weather pictures); `design/build.sh --dcf` builds
-`design/build/smarthome.fig` and `data/smarthome.dcf`. After a design build give the user the full
-path of the built `.fig`. The skill for it: `vendor/sdv-everyware/everyware/skills/figma-design`.
+`design/smarthome.fig` and `data/smarthome.dcf`, both in git: commit them with every change of the
+design. After a design build give the user the full path of the built `.fig`. The skill for it: `vendor/sdv-everyware/everyware/skills/figma-design`.
 
 ## The rules of an app
 
