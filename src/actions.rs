@@ -122,7 +122,7 @@ impl StateAction<State, ()> for HomeAction {
                     state.prefs.open();
                 }
             }
-            HomeAction::Gesture(node, gesture) if node == "#status/game" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+            HomeAction::Gesture(node, gesture) if node == "#status/game" && crate::config::game() && !state.device.container.is_open() && !state.wifi.form.is_open() => {
                 // the game button opens the game; the game goes on where it paused
                 if clicked(&mut state.dash.game, *gesture) {
                     state.game.open(crate::game::running(), &state.sizes);

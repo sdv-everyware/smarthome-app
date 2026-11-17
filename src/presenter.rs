@@ -26,6 +26,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.presence = slot("#status/presence", &d.presence);
         model.wifi_indicator = slot("#status/wifi", &d.wifi);
         model.game_button = slot("#status/game", &d.game);
+        model.game_button_display = if crate::config::game() { DisplayState::Visible } else { DisplayState::Gone };
         model.climate_minus = slot("#climate/minus", &d.temp_minus);
         model.climate_plus = slot("#climate/plus", &d.temp_plus);
         model.climate_setpoint = format!("{}°", d.setpoint);
@@ -208,7 +209,7 @@ fn present_game(model: &mut UiModel, state: &State, free_height: f32) {
     model.game_close = slot("#game/close", &game.close);
     model.game_status = game.status.clone();
     // the zone only while a game runs: a game that ended leaves no frozen frame over the status
-    model.game_zone = crate::config::wayland_zones() && game.sheet.is_open() && game.running;
+    model.game_zone = crate::config::wayland_zones() && game.sheet.is_open() && game.reach.runs();
     let [up, down, left, right] = &game.pad.buttons;
     model.game_up = slot("#game/up", up);
     model.game_down = slot("#game/down", down);

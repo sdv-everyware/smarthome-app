@@ -348,9 +348,9 @@ pub struct GamePanel {
     pub use_key: Button,
     /// The keys the game was told are down.
     pub held: crate::game::Held,
-    /// A game reads the keys (game::running): asked when the dialog opens and every second
-    /// while it is open. Without one the zone is off: no frozen last frame over the status.
-    pub running: bool,
+    /// Whether a game reads the keys (game::running): asked when the dialog opens and every
+    /// second while it is open. Without one the zone is off: no frozen last frame over the status.
+    pub reach: crate::game::Reach,
     /// What shows under the picture until the game's first frame (#game/status).
     pub status: String,
     /// A key could not be sent since the dialog opened (said once in the log).
@@ -366,7 +366,7 @@ impl Default for GamePanel {
             fire: Button::new(ButtonKind::Primary, "Fire").compact(),
             use_key: Button::new(ButtonKind::Secondary, "Use").compact(),
             held: Default::default(),
-            running: false,
+            reach: Default::default(),
             status: String::new(),
             unsent: false,
         }
@@ -388,11 +388,11 @@ impl GamePanel {
         ]
     }
 
-    /// Opens the dialog; `running`: whether a game reads the keys (game::running). The pad's
+    /// Opens the dialog; `reach`: whether a game reads the keys (game::running). The pad's
     /// buttons take their places on the screen in the open card (`sizes`: the design's).
-    pub fn open(&mut self, running: bool, sizes: &Sizes) {
+    pub fn open(&mut self, reach: crate::game::Reach, sizes: &Sizes) {
         self.unsent = false;
-        self.follow(running);
+        self.follow(reach);
         self.sheet.open();
         let card = self.sheet.with_content_height(sizes.height("#game-content", "state=default")).card_position(SCREEN, SCREEN.1);
         let (x0, y0) = (card.0 + everyware_ui::sheet::CARD_PAD, card.1 + everyware_ui::sheet::CARD_PAD);
@@ -405,10 +405,13 @@ impl GamePanel {
     }
 
     /// Whether a game reads the keys now: the zone and the status follow.
-    pub fn follow(&mut self, running: bool) {
-        if running != self.running || self.status.is_empty() {
-            self.running = running;
-            self.status = crate::game::status(running).to_string();
+    pub fn follow(&mut self, reach: crate::game::Reach) {
+        if reach != self.reach || self.status.is_empty() {
+            if reach == crate::game::Reach::KeysBlocked {
+                log::warn!("smarthome: game: it runs, but the panel may not open its FIFO (SELinux?): no keys reach it");
+            }
+            self.reach = reach;
+            self.status = crate::game::status(reach).to_string();
         }
     }
 

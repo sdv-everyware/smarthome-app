@@ -203,8 +203,10 @@ ui_model! {
     // component into the slot and customizes the clone on its own; taps come by the slot's name
     presence: Slot = "#status/presence" ["SlotCustomizer"];
     wifi_indicator: Slot = "#status/wifi" ["SlotCustomizer"];
-    // the game button, left of the Wi-Fi indicator (design/game-patch.js)
+    // the game button, left of the Wi-Fi indicator (design/game-patch.js); out of the row (gone)
+    // when the image has no game (config::game)
     game_button: Slot = "#status/game" ["SlotCustomizer"];
+    game_button_display: DisplayState = "#status/game" = DisplayState::Gone;
 
     // climate
     climate_minus: Slot = "#climate/minus" ["SlotCustomizer"];

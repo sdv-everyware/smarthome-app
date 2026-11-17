@@ -4,7 +4,9 @@ The smart home panel on harry (1920 x 1080): the time and the weather, the rooms
 lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the agenda (a
 tap on an event shows its details at the right), the Wi-Fi settings and the settings in sheets,
 and a game in a dialog: DOOM, run by the doom-app process, its picture in a zone of the dialog
-and the dialog's buttons its keys (`src/game.rs`). It is written against the EveryWare UI library (`vendor/sdv-everyware/ui-lib`); the
+and the dialog's buttons its keys over it (`src/game.rs`). The status row has the game's button
+only in an image with the game (`ro.vendor.everyware.game=true`, set by doom-app's
+`EVERYWARE_GAME=true`). It is written against the EveryWare UI library (`vendor/sdv-everyware/ui-lib`); the
 house's data comes from the dashboard bundle over binder (`src/screen_binder.rs`). How the app is built, step by step: [`docs/harry-app-anatomy.md`](docs/harry-app-anatomy.md).
 
 ## The design

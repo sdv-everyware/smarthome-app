@@ -26,7 +26,8 @@
 //! the dialog asks when it opens and every second while it is open.
 //!
 //! The direction pad follows a sliding thumb (`Pad`): a finger that rolls from Left onto Up lets
-//! Left go and holds Up, as on a game pad. Nothing here needs a device: its tests run on the host
+//! Left go and holds Up, as on a game pad. The keys lie over the picture (design/game-patch.js):
+//! scrim icon buttons, white 15 % as over the camera. Nothing here needs a device: its tests run on the host
 //! (smarthome_app_host_test).
 
 use everyware_ui_core::button::{Icon, IconButton, IconButtonKind};
@@ -37,6 +38,17 @@ use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 
 /// The zone of the game's picture: the tag the game names in har_zone (doom-app --zone).
 pub const ZONE_TAG: &str = "#zone/game";
+
+/// The property by which the image says it has the game: doom-app's product/doom.mk sets it with
+/// EVERYWARE_GAME=true, when it puts doom_app and its WAD into the image. Without it the status
+/// row has no game button. A development run on an image without it: `setprop` it (as root,
+/// before the panel starts; a ro. property can be set once).
+pub const PROPERTY: &str = "ro.vendor.everyware.game";
+
+/// Whether the image has the game, by the property's value.
+pub fn in_image(property: &str) -> bool {
+    property == "true"
+}
 
 /// A key of the game, one per button of the dialog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,8 +78,8 @@ impl Key {
     }
 }
 
-/// The direction pad: up, down, left, right (Key's order), icon buttons in a 3 x 3 grid
-/// (design/game-patch.js). A finger holds the button it is on: the touch stays with the button it
+/// The direction pad: up, down, left, right (Key's order), scrim icon buttons in a 3 x 3 grid
+/// over the picture's bottom left (design/game-patch.js). A finger holds the button it is on: the touch stays with the button it
 /// started on (ui-lib Input), and the pad finds the button under the finger from its places on
 /// the screen (`rects`, from the design, while the dialog is open).
 #[derive(Debug)]
@@ -85,7 +97,7 @@ pub const PAD_NODES: [&str; 4] = ["#game/up", "#game/down", "#game/left", "#game
 
 impl Default for Pad {
     fn default() -> Self {
-        let button = |icon| IconButton::new(IconButtonKind::Tonal, icon);
+        let button = |icon| IconButton::new(IconButtonKind::Scrim, icon);
         Pad {
             buttons: [button(Icon::ChevronUp), button(Icon::ChevronDown), button(Icon::ChevronLeft), button(Icon::ChevronRight)],
             rects: [Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }; 4],
@@ -102,37 +114,36 @@ impl Pad {
 
     /// A gesture of a finger that started on the button `start`: the finger holds the button it
     /// is on, also after sliding onto another one; off the pad (the middle, outside) it holds
-    /// none.
+    /// none. A button is held while any finger is on it.
     pub fn on(&mut self, start: usize, gesture: Gesture) {
-        let now = match gesture {
+        self.rolled[start] = match gesture {
             Gesture::Down { .. } => Some(start),
             Gesture::Move { inside: true, .. } => Some(start),
             Gesture::Move { x, y, inside: false } => at(&self.rects, x, y),
             Gesture::Up { .. } | Gesture::Cancel => None,
         };
-        let was = self.rolled[start];
-        if now != was {
-            if let Some(w) = was {
-                self.buttons[w].on(Gesture::Cancel);
-            }
-            if let Some(n) = now {
-                self.buttons[n].on(Gesture::DOWN);
-            }
-            self.rolled[start] = now;
-        }
+        self.press();
     }
 
     /// Every button lets go.
     pub fn release(&mut self) {
-        for b in &mut self.buttons {
-            b.on(Gesture::Cancel);
-        }
         self.rolled = [None; 4];
+        self.press();
     }
 
-    /// Whether each button is held, in Key's order.
+    /// Whether each button is held, in Key's order: a finger is on it.
     pub fn held(&self) -> [bool; 4] {
-        self.buttons.each_ref().map(|b| b.press.pressed)
+        std::array::from_fn(|i| self.rolled.contains(&Some(i)))
+    }
+
+    /// The buttons' pressed layers follow what is held.
+    fn press(&mut self) {
+        let held = self.held();
+        for (b, held) in self.buttons.iter_mut().zip(held) {
+            if b.press.pressed != held {
+                b.on(if held { Gesture::DOWN } else { Gesture::Cancel });
+            }
+        }
     }
 }
 
@@ -141,12 +152,41 @@ pub fn at(rects: &[Rect], x: f32, y: f32) -> Option<usize> {
     rects.iter().position(|r| r.w > 0.0 && r.h > 0.0 && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
 }
 
+/// Whether a game reads the keys, as the panel finds the FIFO (`reach`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Reach {
+    /// No game: no FIFO, or nobody reads it.
+    #[default]
+    NotRunning,
+    /// A game reads the FIFO and the panel may write it.
+    Runs,
+    /// A game made the FIFO and reads it, but the panel may not open it (an enforcing board
+    /// without a rule for the FIFO): its picture shows, its keys do not arrive.
+    KeysBlocked,
+}
+
+impl Reach {
+    /// Whether the game's picture belongs in the zone.
+    pub fn runs(self) -> bool {
+        self != Reach::NotRunning
+    }
+}
+
+/// What opening the FIFO to write says: opened (None), or the error's errno.
+pub fn reach(errno: Option<i32>) -> Reach {
+    match errno {
+        None => Reach::Runs,
+        Some(libc::EACCES) | Some(libc::EPERM) => Reach::KeysBlocked,
+        Some(_) => Reach::NotRunning,
+    }
+}
+
 /// What the dialog says under the picture until the game's first frame covers it.
-pub fn status(running: bool) -> &'static str {
-    if running {
-        "Starting the game"
-    } else {
-        "The game is not running"
+pub fn status(reach: Reach) -> &'static str {
+    match reach {
+        Reach::Runs => "Starting the game",
+        Reach::KeysBlocked => "The game runs, but the panel may not send it keys",
+        Reach::NotRunning => "The game is not running",
     }
 }
 
@@ -221,14 +261,15 @@ pub fn send(changes: &[(Key, bool)]) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Whether a game reads the FIFO now: it runs, and its picture comes into the zone.
-pub fn running() -> bool {
-    open(&fifo()).is_ok()
+/// Whether a game reads the FIFO now (`reach`).
+pub fn running() -> Reach {
+    reach(open(&fifo()).err().map(|e| e.raw_os_error().unwrap_or(0)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use everyware_ui_core::Component;
 
     #[test]
     fn a_line_per_key_and_way() {
@@ -285,6 +326,33 @@ mod tests {
     }
 
     #[test]
+    fn a_button_stays_held_while_any_thumb_is_on_it() {
+        let mut p = pad();
+        let (left, up) = (Pad::index("#game/left").unwrap(), Pad::index("#game/up").unwrap());
+        // thumb B holds Up, thumb A rolls from Left onto Up and off it again
+        p.on(up, Gesture::DOWN);
+        p.on(left, Gesture::down(130.0, 300.0));
+        p.on(left, Gesture::Move { x: 200.0, y: 230.0, inside: false });
+        assert_eq!(p.held(), [true, false, false, false]);
+        p.on(left, Gesture::Move { x: 130.0, y: 300.0, inside: false });
+        assert_eq!(p.held(), [true, false, true, false], "B still holds Up");
+        assert!(p.buttons[up].press.pressed, "its pressed layer too");
+        p.on(up, Gesture::Up { x: 0.0, y: 0.0, inside: true, velocity: 0.0, velocity_x: 0.0 });
+        assert_eq!(p.held(), [false, false, true, false]);
+        assert!(!p.buttons[up].press.pressed);
+    }
+
+    #[test]
+    fn the_fifo_says_whether_a_game_runs() {
+        assert_eq!(reach(None), Reach::Runs);
+        assert_eq!(reach(Some(libc::EACCES)), Reach::KeysBlocked, "an enforcing board without a rule");
+        assert_eq!(reach(Some(libc::EPERM)), Reach::KeysBlocked);
+        assert_eq!(reach(Some(libc::ENXIO)), Reach::NotRunning, "nobody reads");
+        assert_eq!(reach(Some(libc::ENOENT)), Reach::NotRunning, "no FIFO");
+        assert!(Reach::KeysBlocked.runs() && Reach::Runs.runs() && !Reach::NotRunning.runs());
+    }
+
+    #[test]
     fn two_thumbs_and_a_pad_without_places() {
         let mut p = pad();
         let (up, down) = (Pad::index("#game/up").unwrap(), Pad::index("#game/down").unwrap());
@@ -301,7 +369,11 @@ mod tests {
         p.on(up, Gesture::Move { x: 0.0, y: 0.0, inside: false });
         assert_eq!(p.held(), [false; 4]);
         assert_eq!(Pad::index("#game/fire"), None);
-        assert_eq!((status(true), status(false)), ("Starting the game", "The game is not running"));
+        assert_eq!((status(Reach::Runs), status(Reach::NotRunning)), ("Starting the game", "The game is not running"));
+        assert_eq!(status(Reach::KeysBlocked), "The game runs, but the panel may not send it keys");
+        assert_eq!(Pad::default().buttons[0].variant(), "kind=scrim, state=default, icon=chevron-up, size=regular", "the design's");
+        assert!(in_image("true"));
+        assert!(!in_image("") && !in_image("false") && !in_image("1"));
     }
 
     #[test]

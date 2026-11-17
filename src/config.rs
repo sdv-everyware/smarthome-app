@@ -93,6 +93,14 @@ pub fn browser() -> bool {
     *BROWSER.get_or_init(|| crate::state::property(BROWSER_PROPERTY) == "true")
 }
 
+static GAME: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Whether the image has the game (game::PROPERTY): the status row shows the game button. Read
+/// once.
+pub fn game() -> bool {
+    *GAME.get_or_init(|| crate::game::in_image(&crate::state::property(crate::game::PROPERTY)))
+}
+
 /// --zone-redraw, readable where the UI model formats the zone (no arguments there either).
 static ZONE_REDRAW: std::sync::OnceLock<ZoneRedraw> = std::sync::OnceLock::new();
 
