@@ -27,13 +27,14 @@ pub struct CommandLineArgs {
     /// (RB3 HDMI touch: 0..32767). Unset: positions pass through.
     #[arg(long)]
     pub touch_size: Option<String>,
-    /// Serve Wayland clients (other harry processes) and show the one bound to
-    /// ZONE_CAMERA_TAG in the camera tile. Off: the tile keeps its design picture and no
-    /// socket is opened.
+    /// Serve Wayland clients (other harry processes) and show them in their zones: camera-app's
+    /// tile and full view (camera.rs), the game. Off: no socket is opened and the camera tile
+    /// says "Camera offline" (no camera app can draw it).
     #[arg(long)]
     pub wayland_zones: bool,
-    /// What redraws the dashboard for the camera tile's Wayland zone: `timer` every 33 ms (also
-    /// when the zone is idle), `frames` once per client frame (an idle zone costs nothing).
+    /// What redraws the dashboard for the camera tile's and the browser's Wayland zones: `timer`
+    /// every 33 ms (also when the zone is idle), `frames` once per client frame (an idle zone
+    /// costs nothing). The game's zone is always `frames` (ui_model.rs GameZoneCustomizer).
     #[arg(long, value_enum, default_value_t = ZoneRedraw::Timer)]
     pub zone_redraw: ZoneRedraw,
     /// Most frames a second the zone's client may render (the bridge answers its frame
@@ -90,6 +91,14 @@ static BROWSER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 #[cfg(browser)]
 pub fn browser() -> bool {
     *BROWSER.get_or_init(|| crate::state::property(BROWSER_PROPERTY) == "true")
+}
+
+static GAME: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Whether the image has the game (game::PROPERTY): the status row shows the game button. Read
+/// once.
+pub fn game() -> bool {
+    *GAME.get_or_init(|| crate::game::in_image(&crate::state::property(crate::game::PROPERTY)))
 }
 
 /// --zone-redraw, readable where the UI model formats the zone (no arguments there either).

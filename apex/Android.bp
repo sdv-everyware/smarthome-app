@@ -62,9 +62,14 @@ prebuilt_etc {
     installable: false,
 }
 
-// The design the panel starts with (a design in /data/vendor/everyware/smarthome wins).
+// The design the panel starts with (a design in /data/vendor/everyware/smarthome wins). It carries
+// the Library's Lucide glyphs: their license (ui-lib NOTICE) goes into the image's notices.
 prebuilt_etc {
     name: "com.everyware.smarthome.dcf",
+    licenses: [
+        "Android-Apache-2.0",
+        "everyware_ui_lucide_license",
+    ],
     src: ":smarthome_app_dcf",
     filename: "smarthome.dcf",
     sub_dir: "smarthome",

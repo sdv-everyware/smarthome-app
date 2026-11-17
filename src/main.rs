@@ -35,9 +35,11 @@ mod agenda;
 mod agenda_card;
 #[cfg(browser)]
 mod browser;
+mod camera;
 mod clock;
 mod config;
 mod devices;
+mod game;
 mod screen_binder;
 
 mod presenter;
@@ -200,6 +202,14 @@ fn main() {
     #[cfg(browser)]
     if config::browser() {
         browser::spawn_events(actions.clone());
+    }
+    // The camera: camera-app's control socket next to the Wayland socket (live while the full
+    // view is open; on/off for the LIVE chips). Only with zones: without them nothing shows it.
+    if args.wayland_zones {
+        let actions = actions.clone();
+        let runtime_dir = std::env::var_os("XDG_RUNTIME_DIR");
+        let path = camera::socket_path(runtime_dir.as_deref().map(std::path::Path::new));
+        camera::spawn(path, move |event| actions.send(Actions::CustomAction(HomeAction::Camera(event))).is_ok());
     }
 
     // Touch and keyboard from evdev; --touch-size maps panel units to pixels (RB3). Opened on a

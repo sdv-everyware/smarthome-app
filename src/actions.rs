@@ -5,7 +5,7 @@
 use crate::clock::Clock;
 use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
-use crate::state::{Dashboard, DeviceSheet, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
+use crate::state::{Dashboard, DeviceSheet, GamePanel, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
 use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
@@ -60,6 +60,8 @@ pub enum HomeAction {
     /// How the page in the panel's browser is doing (browser.rs events).
     #[cfg(browser)]
     Browser(crate::browser::BrowserEvent),
+    /// What camera-app said on its control socket (camera.rs).
+    Camera(crate::camera::Event),
 }
 
 impl StateAction<State, ()> for HomeAction {
@@ -70,6 +72,12 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
+                // the camera's view settles here too when its wake-up did not come
+                settle_camera(&mut state.camera);
+                // the game's dialog follows a game that ends or starts while it is open
+                if state.game.sheet.is_open() {
+                    state.game.follow(crate::game::running());
+                }
                 #[cfg(browser)]
                 browser_timeout(state);
             }
@@ -80,6 +88,10 @@ impl StateAction<State, ()> for HomeAction {
                     log::info!("smarthome: browser: {event:?} after {:?}", state.browser.loading_since().map(|t| t.elapsed()).unwrap_or_default());
                     state.browser.shown();
                 }
+            }
+            HomeAction::Camera(event) => {
+                state.camera.link.apply(*event);
+                settle_camera(&mut state.camera);
             }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
             HomeAction::Agenda(agenda) => state.agenda.set(agenda.clone(), &state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now()),
@@ -97,6 +109,8 @@ impl StateAction<State, ()> for HomeAction {
             }
             HomeAction::MatterResult(result) => on_matter_result(&mut state.matter_pending, &state.devices, result),
             HomeAction::CalendarResult(answer) => state.agenda.event.answered(answer, Instant::now()),
+            // the camera's full view covers the screen: it takes every gesture while open
+            HomeAction::Gesture(node, gesture) if state.camera.is_open() => on_camera_view(&mut state.camera, node, *gesture),
             #[cfg(browser)]
             HomeAction::Gesture(node, gesture) if state.panel.is_open() => {
                 // the panel while it is open: a tap on the scrim or on close closes it, the card
@@ -113,6 +127,7 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
+            HomeAction::Gesture(node, gesture) if state.game.sheet.is_open() => on_game(&mut state.game, node, *gesture),
             HomeAction::Gesture(node, gesture) if state.agenda.event.is_open() => {
                 // the panel's steps; a change goes to the calendar bundle
                 if let Some(command) = state.agenda.event.on(node, *gesture, Instant::now()) {
@@ -124,6 +139,20 @@ impl StateAction<State, ()> for HomeAction {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
                     state.prefs.open();
+                }
+            }
+            HomeAction::Gesture(node, gesture) if node == "#status/game" && crate::config::game() && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+                // the game button opens the game; the game goes on where it paused
+                if clicked(&mut state.dash.game, *gesture) {
+                    state.game.open(crate::game::running(), &state.sizes);
+                }
+            }
+            HomeAction::Gesture(node, gesture) if node == "#camera/open" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+                // the tile's open button: the camera live over the whole screen
+                if clicked(&mut state.dash.open_feed, *gesture) {
+                    log::info!("smarthome: camera: the full view opened");
+                    crate::camera::wake_at(state.camera.open(Instant::now()));
+                    crate::camera::set_live(true);
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -278,6 +307,56 @@ fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
     button.on(gesture) == Some(ButtonEvent::Clicked)
 }
 
+/// The camera's full view while it is open: its close button closes it (the camera goes back
+/// to stills once it slid out: the Tick). The picture is camera-app's zone: the looper hands
+/// its touches to camera-app, not here; the rest of the screen under the view takes nothing.
+fn on_camera_view(view: &mut crate::camera::CameraView, node: &str, gesture: Gesture) {
+    if node == "#camera-view/close" && clicked(&mut view.close, gesture) {
+        log::info!("smarthome: camera: the full view closed");
+        crate::camera::wake_at(view.close(Instant::now()));
+    }
+}
+
+/// The camera's view after its open or close played: the live zone on, or off with the camera
+/// back to stills.
+fn settle_camera(view: &mut crate::camera::CameraView) {
+    if view.settle(Instant::now()) == Some(crate::camera::Settled::Closed) {
+        crate::camera::set_live(false);
+    }
+}
+
+/// The game's dialog while it is open: the scrim and close close it and let every key go; a
+/// key's button holds its key from the finger's down until it lifts or slides off, and a thumb
+/// that slides across the pad holds the direction it is on (game.rs Pad). Two fingers hold two
+/// keys when each reaches the panel as a touch of its own (not verified on the board: harry's
+/// evdev reader reports one finger per input frame). The card takes the rest. Closed, the zone
+/// is hidden and the game pauses.
+fn on_game(game: &mut GamePanel, node: &str, gesture: Gesture) {
+    let scrim = node == "#game/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
+    let changes = if scrim || (node == "#game/close" && clicked(&mut game.close, gesture)) {
+        game.close()
+    } else {
+        match (crate::game::Pad::index(node), node) {
+            (Some(i), _) => game.pad.on(i, gesture),
+            (None, "#game/fire") => {
+                game.fire.on(gesture);
+            }
+            (None, "#game/use") => {
+                game.use_key.on(gesture);
+            }
+            _ => return,
+        }
+        let keys = game.keys();
+        game.held.follow(keys)
+    };
+    if let Err(e) = crate::game::send(&changes) {
+        if !game.unsent {
+            log::warn!("smarthome: game: the keys did not reach the game: {e} (is it running?)");
+            game.unsent = true;
+        }
+    }
+}
+
 /// A control of a device the dashboard changed: a command for the device.
 #[derive(Clone, Debug, PartialEq)]
 enum Control {
@@ -420,11 +499,6 @@ fn on_dashboard(d: &mut Dashboard, node: &str, gesture: Gesture) -> Option<Contr
         "#climate/humidity-adjust" => {
             if clicked(&mut d.humidity_adjust, gesture) {
                 log::info!("smarthome: adjust humidity");
-            }
-        }
-        "#camera/open" => {
-            if clicked(&mut d.open_feed, gesture) {
-                log::info!("smarthome: open the camera feed");
             }
         }
         "#entryway/light" => {

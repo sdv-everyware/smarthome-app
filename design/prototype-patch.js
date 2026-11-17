@@ -1,8 +1,8 @@
 // prototype-patch.js: the sheets for the designer, as DesignCompose does it in Figma. Run last
 // (build.sh): it uses #sheet and #keyboard-dock (components-patch.js), #wifi-content
 // (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js),
-// #prefs-content (prefs-patch.js), #event-content (event-patch.js) and the
-// dashboard's names (dashboard-patch.js).
+// #prefs-content (prefs-patch.js), #event-content (event-patch.js), #game-content and
+// #status/game (game-patch.js) and the dashboard's names (dashboard-patch.js).
 //
 // On the screen the sheets are instances in their closed variant, below the screen edge; the app
 // opens them by their variant (harry does not read Figma prototypes). Here each sheet is also a
@@ -16,6 +16,7 @@
 //   #agenda/list      -> Event · right (an event's details, from the right): Join on phone and
 //                        Directions -> Event · QR code (Back returns), Delete -> Event · delete?
 //   #agenda/account   -> Calendar · right (the calendar's link): Disconnect -> Calendar · disconnect?
+//   #status/game      -> Game · dialog (the game's picture and its keys)
 //   Cancel, Connect, the close button, a tap outside a card -> close
 //
 // The buttons inside a card are instances; their taps are transparent hotspot frames on top.
@@ -222,6 +223,13 @@ module.exports = function patch(msg, helpers) {
   onTap(hotspot(calendarPanel.overlay, eventCalendar, '#event/change-access', 'Change access'), swapOverlay(disconnectPanel.overlay));
   onTap(hotspot(disconnectPanel.overlay, eventConfirm, '#event/cancel', 'Cancel'), swapOverlay(calendarPanel.overlay));
   onTap(hotspot(disconnectPanel.overlay, eventConfirm, '#event/confirm', 'Disconnect'), close());
+  // the game (game-patch.js), a dialog from the status row's game button; close at the title bar
+  const gameContent = variantOf('#game-content', 'state=default');
+  const game = sheetOverlay('Game · dialog', 'dialog', gameContent);
+  const gameButton = nodes.find(n => n.name === '#status/game');
+  if (!gameButton) throw new Error('#status/game not found: run game-patch.js first');
+  onTap(gameButton, openOverlay(game.overlay, game.from));
+  onTap(hotspot(game.overlay, gameContent, '#game/close', 'close'), close());
 
   // ---- the tabs as screens: the header and the bottom bar copied over the root's background,
   // the content the Overview's (copied) or a screen set's shown variant; the header's tabs

@@ -21,8 +21,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 /// Zone tag of the camera tile: the content tag a Wayland client names in har_zone, not the
-/// layer's name. A harry client built for a zone binds to it (its display params, zone_tag).
-pub const ZONE_CAMERA_TAG: &str = "#zone/camera";
+/// layer's name. camera-app binds it (camera.rs ZONE_TILE).
+pub const ZONE_CAMERA_TAG: &str = crate::camera::ZONE_TILE;
 /// Zone tag of the panel's browser (#panel/browser, experimental, built with the cfg browser):
 /// with it every ordinary Wayland app (xdg-shell, the browser) binds to it (main.rs,
 /// BridgeConfig::xdg_default_tag).
@@ -53,6 +53,41 @@ pub struct BrowserZoneCustomizer {}
 impl Customizer<bool> for BrowserZoneCustomizer {
     fn format(&mut self, enabled: bool) -> CustomizerOutput {
         zone(ZONE_BROWSER_TAG, enabled)
+    }
+}
+
+/// The camera's full view (#camera-view/picture) as the zone camera::ZONE_LIVE: on while the
+/// view rests on the screen and while it slides out (camera.rs CameraView), never switched in
+/// the middle of a slide. Applied once, whatever --zone-redraw says, as the game's zone: the
+/// camera's frames drive the redraws.
+#[derive(Clone, Debug, Default)]
+pub struct CameraViewZoneCustomizer {}
+
+impl Customizer<bool> for CameraViewZoneCustomizer {
+    fn format(&mut self, enabled: bool) -> CustomizerOutput {
+        if enabled {
+            CustomizerOutput::new_finished(RenderCustomization::ExternalImage(ExternalImageContent::new(crate::camera::ZONE_LIVE)))
+        } else {
+            CustomizerOutput::new_finished(RenderCustomization::Display(DisplayState::Visible))
+        }
+    }
+}
+
+/// The game's picture (#game/picture) as a zone of game::ZONE_TAG. On only while the game's
+/// dialog is open and a game runs: closed, the looper reports the scene hidden and the game
+/// pauses itself (doom-app). Applied once, whatever --zone-redraw says: the game's frames drive
+/// the redraws, so an open dialog costs a redraw per game frame and no timer on top of it (the
+/// timer is for the browser, whose touch it once seemed to need).
+#[derive(Clone, Debug, Default)]
+pub struct GameZoneCustomizer {}
+
+impl Customizer<bool> for GameZoneCustomizer {
+    fn format(&mut self, enabled: bool) -> CustomizerOutput {
+        if enabled {
+            CustomizerOutput::new_finished(RenderCustomization::ExternalImage(ExternalImageContent::new(crate::game::ZONE_TAG)))
+        } else {
+            CustomizerOutput::new_finished(RenderCustomization::Display(DisplayState::Visible))
+        }
     }
 }
 
@@ -185,6 +220,10 @@ ui_model! {
     // component into the slot and customizes the clone on its own; taps come by the slot's name
     presence: Slot = "#status/presence" ["SlotCustomizer"];
     wifi_indicator: Slot = "#status/wifi" ["SlotCustomizer"];
+    // the game button, left of the Wi-Fi indicator (design/game-patch.js); out of the row (gone)
+    // when the image has no game (config::game)
+    game_button: Slot = "#status/game" ["SlotCustomizer"];
+    game_button_display: DisplayState = "#status/game" = DisplayState::Gone;
 
     // climate
     climate_minus: Slot = "#climate/minus" ["SlotCustomizer"];
@@ -218,10 +257,24 @@ ui_model! {
     rooms_variant: Variant = "#rooms" = Variant("state=shown".to_string());
     automations: ScreenView = "#automations" ["ScreenCustomizer"] = ScreenView::default();
     automations_variant: Variant = "#automations" = Variant("state=shown".to_string());
-    // --wayland-zones: the tile's picture shows another harry process (a zone). A frame, not a
-    // rectangle (dashboard-patch.js): harry draws an external image only on a plain frame. The
-    // scrim and the caption with #camera/open are drawn after it, on top of the client's frames.
-    camera_zone: bool = "#camera/feed" ["ZoneCustomizer"] = crate::config::wayland_zones();
+    // --wayland-zones: the tile's picture shows camera-app's still (a zone) while camera-app is
+    // connected (camera.rs). A frame, not a rectangle (dashboard-patch.js): harry draws an
+    // external image only on a plain frame. The scrim and the caption with #camera/open are
+    // drawn after it, on top of the client's frames.
+    camera_zone: bool = "#camera/feed" ["ZoneCustomizer"] = false;
+    // the tile's LIVE chip while the camera delivers; its offline state while no camera-app is
+    // connected (camera-app draws its own into the zone when the camera is missing)
+    camera_live: DisplayState = "#camera/live" = DisplayState::Gone;
+    camera_offline: DisplayState = "#camera/offline";
+    // The camera's full view (design/camera-patch.js): the whole screen, below it while closed;
+    // it slides in and out as a sheet's card (camera.rs CameraView). Its picture is the zone
+    // ZONE_LIVE (live video, while the view rests or slides out); the band with the chip and
+    // close over it.
+    camera_view: Position = "#camera-view" ["FollowPositionCustomizer"] = Position::new((0.0, crate::camera::CLOSED_Y), None);
+    camera_view_zone: bool = "#camera-view/picture" ["CameraViewZoneCustomizer"] = false;
+    camera_view_offline: DisplayState = "#camera-view/offline" = DisplayState::Gone;
+    camera_view_live: DisplayState = "#camera-view/live" = DisplayState::Gone;
+    camera_view_close: Slot = "#camera-view/close" ["SlotCustomizer"];
     talk: Slot = "#intercom/talk" ["SlotCustomizer"];
 
     // weather (Open-Meteo): the widget in place of the energy one
@@ -397,6 +450,24 @@ ui_model! {
     _prefs_wifi_tap: () = "#prefs/wifi" interactive;
     prefs_wifi: String = "#prefs/wifi/value";
     prefs_about: String = "#prefs/about";
+
+    // The game: #game, the library's #sheet as a dialog (design/game-patch.js) with #game-content
+    // in it; the card and the scrim moved by the app, as #device. The picture is a zone the game
+    // process draws (game.rs); under it the status until the game's first frame. The pad's and
+    // Fire's and Use's buttons are the game's keys while they are held.
+    game_scrim: Meter = "#game/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    game_scrim_taps: TapTarget = "#game/scrim" ["TapTargetCustomizer"];
+    game_card: Position = "#game/card" ["FollowPositionCustomizer"] = Position::new(crate::state::GAME_LAYOUT.closed(crate::state::SCREEN), None);
+    _game_card_tap: () = "#game/card" interactive;
+    game_close: Slot = "#game/close" ["SlotCustomizer"];
+    game_status: String = "#game/status";
+    game_zone: bool = "#game/picture" ["GameZoneCustomizer"] = false;
+    game_up: Slot = "#game/up" ["SlotCustomizer"];
+    game_down: Slot = "#game/down" ["SlotCustomizer"];
+    game_left: Slot = "#game/left" ["SlotCustomizer"];
+    game_right: Slot = "#game/right" ["SlotCustomizer"];
+    game_fire: Slot = "#game/fire" ["SlotCustomizer"];
+    game_use: Slot = "#game/use" ["SlotCustomizer"];
 
     // The screen's keyboard: an instance of #keyboard-dock, the library's keyboard in its slot
     // (labels, pressed keys, taps). The app never sets the dock's variant (a variant switch

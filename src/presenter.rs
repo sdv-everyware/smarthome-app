@@ -25,12 +25,15 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         let d = &state.dash;
         model.presence = slot("#status/presence", &d.presence);
         model.wifi_indicator = slot("#status/wifi", &d.wifi);
+        model.game_button = slot("#status/game", &d.game);
+        model.game_button_display = if crate::config::game() { DisplayState::Visible } else { DisplayState::Gone };
         model.climate_minus = slot("#climate/minus", &d.temp_minus);
         model.climate_plus = slot("#climate/plus", &d.temp_plus);
         model.climate_setpoint = format!("{}°", d.setpoint);
         model.climate_target = format!("Target · {}° indoors", d.setpoint);
         model.humidity_adjust = slot("#climate/humidity-adjust", &d.humidity_adjust);
         model.camera_open = slot("#camera/open", &d.open_feed);
+        present_camera(model, state);
         model.entryway_light = slot("#entryway/light", &d.light);
         model.entryway_state = if d.light.value { "On" } else { "Off" }.to_string();
         model.bedroom_dimmer = slot("#bedroom/dimmer", &d.dimmer);
@@ -178,6 +181,8 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.event_change_access = slot("#event/change-access", &event.change_access);
         model.event_disconnect = slot("#event/disconnect", &event.disconnect);
 
+        present_game(model, state, free_height);
+
         // the screen's keyboard: the slot with the keys moves with the dock (ui-lib dock.rs)
         model.osk_keys_position = Position::new(state.osk.keys_position(SCREEN), state.osk.transition());
         model.osk_keys = slot("#osk/keys", &state.osk.keyboard);
@@ -213,6 +218,48 @@ fn present_weather(model: &mut UiModel, weather: Option<&Weather>, house_link: b
     model.weather_t1 = label(0);
     model.weather_t2 = label(12);
     model.weather_t3 = label(23);
+}
+
+/// The camera (camera.rs): the tile's zone, chip and offline state, and the full view with its
+/// zone while it is open.
+fn present_camera(model: &mut UiModel, state: &State) {
+    let camera = &state.camera;
+    let shown = |b: bool| if b { DisplayState::Visible } else { DisplayState::Gone };
+    // camera-app draws the zones while it is connected; without it the panel says offline
+    let zones = crate::config::wayland_zones() && camera.zones();
+    model.camera_zone = zones;
+    model.camera_live = shown(camera.link.on);
+    model.camera_offline = shown(!zones);
+    // the view slides with the library's overlay transitions; its zone is on while it rests on
+    // the screen or slides out (camera.rs CameraView)
+    model.camera_view = Position::new((0.0, camera.y()), camera.overlay.transition());
+    model.camera_view_zone = crate::config::wayland_zones() && camera.live_zone();
+    model.camera_view_offline = shown(!zones);
+    model.camera_view_live = shown(camera.link.on);
+    model.camera_view_close = slot("#camera-view/close", &camera.close);
+}
+
+/// The game's dialog: the card from below, the scrim, the zone of the game's picture while the
+/// dialog is open (closed, the game pauses), the keys' buttons.
+fn present_game(model: &mut UiModel, state: &State, free_height: f32) {
+    let game = &state.game;
+    let slide = game.sheet.transition();
+    // the card hugs the content: its height from the design puts the card in the middle
+    let sheet = game.sheet.with_content_height(state.sizes.height("#game-content", "state=default"));
+    model.game_card = Position::new(sheet.card_position(SCREEN, free_height), slide);
+    model.game_scrim = Meter::new(game.sheet.scrim(), slide);
+    model.game_scrim_taps = TapTarget(game.sheet.is_open());
+    model.game_close = slot("#game/close", &game.close);
+    model.game_status = game.status.clone();
+    // the zone only while a game runs: a game that ended leaves no frozen frame over the status
+    model.game_zone = crate::config::wayland_zones() && game.sheet.is_open() && game.reach.runs();
+    let [up, down, left, right] = &game.pad.buttons;
+    model.game_up = slot("#game/up", up);
+    model.game_down = slot("#game/down", down);
+    model.game_left = slot("#game/left", left);
+    model.game_right = slot("#game/right", right);
+    model.game_fire = slot("#game/fire", &game.fire);
+    model.game_use = slot("#game/use", &game.use_key);
 }
 
 /// The browser's panel (built with the cfg browser): the card from behind its edge, the scrim

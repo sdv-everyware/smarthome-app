@@ -286,7 +286,7 @@ What a field type does to its layer:
 | `Slot` with `SlotCustomizer` | a library component in the slot: harry clones the variant the app asks for and the component's parts move by meters and opacities ([8. UI components](https://github.com/sdv-everyware/everyware/blob/main/docs/concepts/8-ui-components.md)) | every control of the dashboard |
 | `Option<NodePositionOverride>` | moves the layer (a translation, no layout) | the clone in a slot |
 | `List<Item>` | fills a frame with clones of a template layer | a slot is one |
-| `ImageContentData` / external image | puts an image or a camera frame in | the camera tile (planned) |
+| `ImageContentData` / external image | puts an image or a camera frame in | the camera tile and its full view (external images: zones of camera-app) |
 
 Sizes are not changed at runtime: a component's size is the variant's, drawn in Figma.
 

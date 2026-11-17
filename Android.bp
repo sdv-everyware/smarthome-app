@@ -98,8 +98,8 @@ rust_binary {
 }
 
 // The tests of the app's modules that need no device (src/host_tests.rs: the time zone list, the
-// zone planes, the agenda and its card), on the host: m smarthome_app_host_test, then
-// out_rb3/host/linux-x86/nativetest64/smarthome_app_host_test/.
+// zone planes, the agenda and its card, the game's keys), on the host: m smarthome_app_host_test,
+// then out_rb3/host/linux-x86/nativetest64/smarthome_app_host_test/.
 rust_test_host {
     name: "smarthome_app_host_test",
     crate_root: "src/host_tests.rs",
@@ -109,6 +109,8 @@ rust_test_host {
         "libeveryware_ui",
         "libeveryware_ui_core",
         "libjiff",
+        // the game's FIFO (game.rs)
+        "liblibc",
         "liblog_rust",
         "libprotobuf",
         "libqrcodegen_no_heap-rsm",

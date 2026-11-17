@@ -49,6 +49,12 @@ pub struct State {
     pub panel: Sheet,
     /// The settings (#prefs, the library's #sheet at the right edge), opened by Settings.
     pub prefs: PrefsSheet,
+    /// The game (#game, the library's #sheet as a dialog), opened by the status row's game
+    /// button: the game's picture and its keys (game.rs).
+    pub game: GamePanel,
+    /// The camera (camera.rs): camera-app's link and the full view (#camera-view), opened by the
+    /// tile's open button.
+    pub camera: crate::camera::CameraView,
     /// What the panel's browser shows (browser.rs).
     #[cfg(browser)]
     pub browser: BrowserPanel,
@@ -141,6 +147,8 @@ pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The settings' layout: a panel at the right edge, as the browser's panel.
 pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
+/// The game's layout: a dialog in the middle.
+pub const GAME_LAYOUT: Layout = Layout::Dialog;
 /// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
 /// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
 /// with the unit of temperatures (an enum: the index of the sheet's segment, °C 0, °F 1).
@@ -330,6 +338,96 @@ impl PrefsSheet {
     }
 }
 
+/// The game's dialog (#game, design/game-patch.js): the game's picture in the zone
+/// #game/picture, a direction pad left of it, Fire and Use right of it, close at the top. A
+/// button held is its key down (game.rs); the game pauses itself while the dialog is closed.
+#[derive(Debug)]
+pub struct GamePanel {
+    pub sheet: Sheet,
+    pub close: IconButton,
+    /// The direction pad: up, down, left, right (game::Key's order), following a sliding thumb.
+    pub pad: crate::game::Pad,
+    pub fire: Button,
+    pub use_key: Button,
+    /// The keys the game was told are down.
+    pub held: crate::game::Held,
+    /// Whether a game reads the keys (game::running): asked when the dialog opens and every
+    /// second while it is open. Without one the zone is off: no frozen last frame over the status.
+    pub reach: crate::game::Reach,
+    /// What shows under the picture until the game's first frame (#game/status).
+    pub status: String,
+    /// A key could not be sent since the dialog opened (said once in the log).
+    pub unsent: bool,
+}
+
+impl Default for GamePanel {
+    fn default() -> Self {
+        GamePanel {
+            sheet: Sheet::new(GAME_LAYOUT),
+            close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
+            pad: crate::game::Pad::default(),
+            fire: Button::new(ButtonKind::Primary, "Fire").compact(),
+            use_key: Button::new(ButtonKind::Secondary, "Use").compact(),
+            held: Default::default(),
+            reach: Default::default(),
+            status: String::new(),
+            unsent: false,
+        }
+    }
+}
+
+impl GamePanel {
+    /// The keys as the buttons hold them now, in game::Key's order.
+    pub fn keys(&self) -> [(crate::game::Key, bool); 6] {
+        use crate::game::Key;
+        let [up, down, left, right] = self.pad.held();
+        [
+            (Key::Up, up),
+            (Key::Down, down),
+            (Key::Left, left),
+            (Key::Right, right),
+            (Key::Fire, self.fire.press.pressed),
+            (Key::Use, self.use_key.press.pressed),
+        ]
+    }
+
+    /// Opens the dialog; `reach`: whether a game reads the keys (game::running). The pad's
+    /// buttons take their places on the screen in the open card (`sizes`: the design's).
+    pub fn open(&mut self, reach: crate::game::Reach, sizes: &Sizes) {
+        self.unsent = false;
+        self.follow(reach);
+        self.sheet.open();
+        let card = self.sheet.with_content_height(sizes.height("#game-content", "state=default")).card_position(SCREEN, SCREEN.1);
+        let (x0, y0) = (card.0 + everyware_ui::sheet::CARD_PAD, card.1 + everyware_ui::sheet::CARD_PAD);
+        for (rect, node) in self.pad.rects.iter_mut().zip(crate::game::PAD_NODES) {
+            *rect = match sizes.part("#game-content", "state=default", node) {
+                Some(f) => everyware_ui::sheet::Rect { x: x0 + f.x, y: y0 + f.y, w: f.width, h: f.height },
+                None => everyware_ui::sheet::Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 },
+            };
+        }
+    }
+
+    /// Whether a game reads the keys now: the zone and the status follow.
+    pub fn follow(&mut self, reach: crate::game::Reach) {
+        if reach != self.reach || self.status.is_empty() {
+            if reach == crate::game::Reach::KeysBlocked {
+                log::warn!("smarthome: game: it runs, but the panel may not open its FIFO (SELinux?): no keys reach it");
+            }
+            self.reach = reach;
+            self.status = crate::game::status(reach).to_string();
+        }
+    }
+
+    /// Closes the dialog: every button lets go. Returns the keys to send up.
+    pub fn close(&mut self) -> Vec<(crate::game::Key, bool)> {
+        self.pad.release();
+        self.fire.on(everyware_ui::Gesture::Cancel);
+        self.use_key.on(everyware_ui::Gesture::Cancel);
+        self.sheet.close();
+        self.held.release()
+    }
+}
+
 /// The dashboard's controls: library components in the slots of #smarthome-root
 /// (design/dashboard-patch.js). Local state until the bundles drive them.
 #[derive(Debug)]
@@ -355,6 +453,8 @@ pub struct Dashboard {
     pub door_details: IconButton,
     pub settings: IconButton,
     pub talk: Button,
+    /// The status row's game button, which opens the game (#status/game).
+    pub game: IconButton,
 }
 
 /// The setpoint's range in °C.
@@ -378,6 +478,7 @@ impl Default for Dashboard {
             headers: [Pressable::default(); 4],
             door_details: IconButton::new(IconButtonKind::Tonal, Icon::ChevronRight),
             settings: IconButton::new(IconButtonKind::Tonal, Icon::Settings),
+            game: IconButton::new(IconButtonKind::Glass, Icon::Gamepad).compact(),
             talk: Button::new(ButtonKind::Primary, "Talk").compact(),
         }
     }
