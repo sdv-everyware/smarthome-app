@@ -207,8 +207,9 @@ fn present_game(model: &mut UiModel, state: &State, free_height: f32) {
     model.game_scrim_taps = TapTarget(game.sheet.is_open());
     model.game_close = slot("#game/close", &game.close);
     model.game_status = game.status.clone();
-    model.game_zone = crate::config::wayland_zones() && game.sheet.is_open();
-    let [up, down, left, right] = &game.pad;
+    // the zone only while a game runs: a game that ended leaves no frozen frame over the status
+    model.game_zone = crate::config::wayland_zones() && game.sheet.is_open() && game.running;
+    let [up, down, left, right] = &game.pad.buttons;
     model.game_up = slot("#game/up", up);
     model.game_down = slot("#game/down", down);
     model.game_left = slot("#game/left", left);

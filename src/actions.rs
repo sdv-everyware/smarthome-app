@@ -68,6 +68,10 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
+                // the game's dialog follows a game that ends or starts while it is open
+                if state.game.sheet.is_open() {
+                    state.game.follow(crate::game::running());
+                }
                 #[cfg(browser)]
                 browser_timeout(state);
             }
@@ -121,7 +125,7 @@ impl StateAction<State, ()> for HomeAction {
             HomeAction::Gesture(node, gesture) if node == "#status/game" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
                 // the game button opens the game; the game goes on where it paused
                 if clicked(&mut state.dash.game, *gesture) {
-                    state.game.open(crate::game::running());
+                    state.game.open(crate::game::running(), &state.sizes);
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -285,18 +289,28 @@ fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
 }
 
 /// The game's dialog while it is open: the scrim and close close it and let every key go; a
-/// key's button holds its key from the finger's down until it lifts or slides off (two fingers
-/// hold two keys); the card takes the rest. Closed, the zone is hidden and the game pauses.
+/// key's button holds its key from the finger's down until it lifts or slides off, and a thumb
+/// that slides across the pad holds the direction it is on (game.rs Pad). Two fingers hold two
+/// keys when each reaches the panel as a touch of its own (not verified on the board: harry's
+/// evdev reader reports one finger per input frame). The card takes the rest. Closed, the zone
+/// is hidden and the game pauses.
 fn on_game(game: &mut GamePanel, node: &str, gesture: Gesture) {
     let scrim = node == "#game/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
     let changes = if scrim || (node == "#game/close" && clicked(&mut game.close, gesture)) {
         game.close()
-    } else if let Some(button) = game.key_button(node) {
-        button.on(gesture);
+    } else {
+        match (crate::game::Pad::index(node), node) {
+            (Some(i), _) => game.pad.on(i, gesture),
+            (None, "#game/fire") => {
+                game.fire.on(gesture);
+            }
+            (None, "#game/use") => {
+                game.use_key.on(gesture);
+            }
+            _ => return,
+        }
         let keys = game.keys();
         game.held.follow(keys)
-    } else {
-        return;
     };
     if let Err(e) = crate::game::send(&changes) {
         if !game.unsent {

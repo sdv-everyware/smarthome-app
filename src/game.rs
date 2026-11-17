@@ -22,9 +22,16 @@
 //!
 //! One line is one write below PIPE_BUF, so it arrives whole. The game reads only these twelve
 //! lines (doom-app's keys.rs); it pauses itself while the zone is hidden (the dialog closed), so
-//! the panel sends nothing else. Nothing here needs a device: its tests run on the host
+//! the panel sends nothing else. Whether a game runs is whether it reads the FIFO (`running`):
+//! the dialog asks when it opens and every second while it is open.
+//!
+//! The direction pad follows a sliding thumb (`Pad`): a finger that rolls from Left onto Up lets
+//! Left go and holds Up, as on a game pad. Nothing here needs a device: its tests run on the host
 //! (smarthome_app_host_test).
 
+use everyware_ui_core::button::{Icon, IconButton, IconButtonKind};
+use everyware_ui_core::sheet::Rect;
+use everyware_ui_core::Gesture;
 use std::io::Write;
 use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
 
@@ -56,6 +63,90 @@ impl Key {
             Key::Fire => "fire",
             Key::Use => "use",
         }
+    }
+}
+
+/// The direction pad: up, down, left, right (Key's order), icon buttons in a 3 x 3 grid
+/// (design/game-patch.js). A finger holds the button it is on: the touch stays with the button it
+/// started on (ui-lib Input), and the pad finds the button under the finger from its places on
+/// the screen (`rects`, from the design, while the dialog is open).
+#[derive(Debug)]
+pub struct Pad {
+    pub buttons: [IconButton; 4],
+    /// Where the buttons are on the screen; zero rectangles: unknown (a finger then holds only
+    /// the button it started on).
+    pub rects: [Rect; 4],
+    /// Per button a finger started on: the button that finger holds now, if any.
+    rolled: [Option<usize>; 4],
+}
+
+/// The pad's nodes, in Key's order.
+pub const PAD_NODES: [&str; 4] = ["#game/up", "#game/down", "#game/left", "#game/right"];
+
+impl Default for Pad {
+    fn default() -> Self {
+        let button = |icon| IconButton::new(IconButtonKind::Tonal, icon);
+        Pad {
+            buttons: [button(Icon::ChevronUp), button(Icon::ChevronDown), button(Icon::ChevronLeft), button(Icon::ChevronRight)],
+            rects: [Rect { x: 0.0, y: 0.0, w: 0.0, h: 0.0 }; 4],
+            rolled: [None; 4],
+        }
+    }
+}
+
+impl Pad {
+    /// The pad's button of a node.
+    pub fn index(node: &str) -> Option<usize> {
+        PAD_NODES.iter().position(|n| *n == node)
+    }
+
+    /// A gesture of a finger that started on the button `start`: the finger holds the button it
+    /// is on, also after sliding onto another one; off the pad (the middle, outside) it holds
+    /// none.
+    pub fn on(&mut self, start: usize, gesture: Gesture) {
+        let now = match gesture {
+            Gesture::Down { .. } => Some(start),
+            Gesture::Move { inside: true, .. } => Some(start),
+            Gesture::Move { x, y, inside: false } => at(&self.rects, x, y),
+            Gesture::Up { .. } | Gesture::Cancel => None,
+        };
+        let was = self.rolled[start];
+        if now != was {
+            if let Some(w) = was {
+                self.buttons[w].on(Gesture::Cancel);
+            }
+            if let Some(n) = now {
+                self.buttons[n].on(Gesture::DOWN);
+            }
+            self.rolled[start] = now;
+        }
+    }
+
+    /// Every button lets go.
+    pub fn release(&mut self) {
+        for b in &mut self.buttons {
+            b.on(Gesture::Cancel);
+        }
+        self.rolled = [None; 4];
+    }
+
+    /// Whether each button is held, in Key's order.
+    pub fn held(&self) -> [bool; 4] {
+        self.buttons.each_ref().map(|b| b.press.pressed)
+    }
+}
+
+/// The index of the rectangle that holds (x, y), if one does.
+pub fn at(rects: &[Rect], x: f32, y: f32) -> Option<usize> {
+    rects.iter().position(|r| r.w > 0.0 && r.h > 0.0 && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h)
+}
+
+/// What the dialog says under the picture until the game's first frame covers it.
+pub fn status(running: bool) -> &'static str {
+    if running {
+        "Starting the game"
+    } else {
+        "The game is not running"
     }
 }
 
@@ -164,6 +255,53 @@ mod tests {
         assert_eq!(held.release(), vec![(Key::Up, false), (Key::Use, false)]);
         assert_eq!(held.release(), vec![]);
         assert_eq!(held, Held::default());
+    }
+
+    /// The pad as game-patch.js draws it, its 72 px cells at (100, 200).
+    fn pad() -> Pad {
+        let cell = |cx: f32, cy: f32| Rect { x: 100.0 + cx * 72.0, y: 200.0 + cy * 72.0, w: 72.0, h: 72.0 };
+        Pad { rects: [cell(1.0, 0.0), cell(1.0, 2.0), cell(0.0, 1.0), cell(2.0, 1.0)], ..Pad::default() }
+    }
+
+    #[test]
+    fn a_thumb_rolls_from_one_direction_to_the_next() {
+        let mut p = pad();
+        let left = Pad::index("#game/left").unwrap();
+        p.on(left, Gesture::down(130.0, 300.0));
+        assert_eq!(p.held(), [false, false, true, false]);
+        p.on(left, Gesture::Move { x: 140.0, y: 310.0, inside: true });
+        assert_eq!(p.held(), [false, false, true, false], "still on Left");
+        // onto Up: Left lets go, Up is held
+        p.on(left, Gesture::Move { x: 200.0, y: 230.0, inside: false });
+        assert_eq!(p.held(), [true, false, false, false]);
+        // the middle of the pad: no direction
+        p.on(left, Gesture::Move { x: 208.0, y: 308.0, inside: false });
+        assert_eq!(p.held(), [false; 4]);
+        // onto Right, then the lift
+        p.on(left, Gesture::Move { x: 270.0, y: 300.0, inside: false });
+        assert_eq!(p.held(), [false, false, false, true]);
+        p.on(left, Gesture::Up { x: 270.0, y: 300.0, inside: false, velocity: 0.0, velocity_x: 0.0 });
+        assert_eq!(p.held(), [false; 4]);
+    }
+
+    #[test]
+    fn two_thumbs_and_a_pad_without_places() {
+        let mut p = pad();
+        let (up, down) = (Pad::index("#game/up").unwrap(), Pad::index("#game/down").unwrap());
+        p.on(up, Gesture::DOWN);
+        p.on(down, Gesture::DOWN);
+        assert_eq!(p.held(), [true, true, false, false]);
+        p.on(down, Gesture::Cancel);
+        assert_eq!(p.held(), [true, false, false, false]);
+        p.release();
+        assert_eq!(p.held(), [false; 4]);
+        // no places known: a finger holds its button while on it, none off it
+        let mut p = Pad::default();
+        p.on(up, Gesture::DOWN);
+        p.on(up, Gesture::Move { x: 0.0, y: 0.0, inside: false });
+        assert_eq!(p.held(), [false; 4]);
+        assert_eq!(Pad::index("#game/fire"), None);
+        assert_eq!((status(true), status(false)), ("Starting the game", "The game is not running"));
     }
 
     #[test]

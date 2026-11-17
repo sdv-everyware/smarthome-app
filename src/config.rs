@@ -32,8 +32,9 @@ pub struct CommandLineArgs {
     /// socket is opened.
     #[arg(long)]
     pub wayland_zones: bool,
-    /// What redraws the dashboard for the camera tile's Wayland zone: `timer` every 33 ms (also
-    /// when the zone is idle), `frames` once per client frame (an idle zone costs nothing).
+    /// What redraws the dashboard for the camera tile's and the browser's Wayland zones: `timer`
+    /// every 33 ms (also when the zone is idle), `frames` once per client frame (an idle zone
+    /// costs nothing). The game's zone is always `frames` (ui_model.rs GameZoneCustomizer).
     #[arg(long, value_enum, default_value_t = ZoneRedraw::Timer)]
     pub zone_redraw: ZoneRedraw,
     /// Most frames a second the zone's client may render (the bridge answers its frame

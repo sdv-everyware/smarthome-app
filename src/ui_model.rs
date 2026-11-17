@@ -56,15 +56,21 @@ impl Customizer<bool> for BrowserZoneCustomizer {
     }
 }
 
-/// The game's picture (#game/picture) as a zone, ZoneCustomizer's twin for game::ZONE_TAG. On
-/// only while the game's dialog is open: closed, the looper reports the scene hidden and the
-/// game pauses itself (doom-app).
+/// The game's picture (#game/picture) as a zone of game::ZONE_TAG. On only while the game's
+/// dialog is open and a game runs: closed, the looper reports the scene hidden and the game
+/// pauses itself (doom-app). Applied once, whatever --zone-redraw says: the game's frames drive
+/// the redraws, so an open dialog costs a redraw per game frame and no timer on top of it (the
+/// timer is for the browser, whose touch it once seemed to need).
 #[derive(Clone, Debug, Default)]
 pub struct GameZoneCustomizer {}
 
 impl Customizer<bool> for GameZoneCustomizer {
     fn format(&mut self, enabled: bool) -> CustomizerOutput {
-        zone(crate::game::ZONE_TAG, enabled)
+        if enabled {
+            CustomizerOutput::new_finished(RenderCustomization::ExternalImage(ExternalImageContent::new(crate::game::ZONE_TAG)))
+        } else {
+            CustomizerOutput::new_finished(RenderCustomization::Display(DisplayState::Visible))
+        }
     }
 }
 
