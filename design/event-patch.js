@@ -86,8 +86,11 @@ module.exports = function patch(msg, helpers) {
   };
   const closedRight = variant('#sheet', 'layout=right, state=closed');
   const close = variant('#icon-button', 'kind=tonal, state=default, icon=x, size=regular');
-  const primary = variant('#button', 'kind=primary, state=default, size=regular');
   const secondary = variant('#button', 'kind=secondary, state=default, size=regular');
+  // red for what cannot be undone (the library's error tone): Delete, and the confirmation's
+  // Delete and Disconnect (the app sets the tone with the label; Change access is primary)
+  const danger = variant('#button', 'kind=secondary-error, state=default, size=regular');
+  const dangerPrimary = variant('#button', 'kind=primary-error, state=default, size=regular');
   const segmented = variant('#segmented', 'segments=3, state=default');
   // a slot: a frame named for the app with a preview instance of the library's component; a
   // button's label is the preview's (the app sets its own)
@@ -128,7 +131,7 @@ module.exports = function patch(msg, helpers) {
           // Accept, Maybe, Decline: the library's segmented button, under the place (the
           // preview's labels; the app sets its own and lights the account's answer, or none)
           const slot = frame(body, name, 0, y, segmented.size.x, segmented.size.y);
-          const labels = ['Accept', 'Maybe', 'Decline'].flatMap((label, i) => ['label', 'label-selected'].map(part => {
+          const labels = ['Accept', 'Maybe', 'Decline'].flatMap((label, i) => ['label', 'label-selected', 'label-selected-ink'].map(part => {
             const t = A.under(segmented, `#segmented/segment-${i + 1}/${part}`);
             return { guidPath: { guids: [t.guid] }, textData: { characters: label, lines: t.textData.lines } };
           }));
@@ -149,7 +152,7 @@ module.exports = function patch(msg, helpers) {
       });
       slotted(actions, '#event/join', 0, 0, secondary, 'Join on phone');
       slotted(actions, '#event/directions', BTN_W + BTN_GAP, 0, secondary, 'Directions');
-      slotted(box, '#event/delete', CONTENT_W - BTN_W, ROW_Y, secondary, 'Delete');
+      slotted(box, '#event/delete', CONTENT_W - BTN_W, ROW_Y, danger, 'Delete');
     } else if (v.step === 'qr') {
       text(box, '#event/qr-title', 0, 0, TITLE_W, 36, 'Join on phone', 28, 'semibold', 'ink');
       // a plain frame: harry draws a picture on a plain frame only
@@ -163,7 +166,7 @@ module.exports = function patch(msg, helpers) {
       text(box, '#event/confirm-text', 0, 60, CONTENT_W, 84, 'Only this occurrence.', 19, 'regular', 'ink');
       lines(box, 'Deleting the event…', 'Google could not be reached. Try again.');
       slotted(box, '#event/cancel', CONTENT_W - 2 * BTN_W - BTN_GAP, ROW_Y, secondary, 'Cancel');
-      slotted(box, '#event/confirm', CONTENT_W - BTN_W, ROW_Y, primary, 'Delete');
+      slotted(box, '#event/confirm', CONTENT_W - BTN_W, ROW_Y, dangerPrimary, 'Delete');
     } else {
       text(box, 'Calendar title', 0, 0, TITLE_W, 36, 'Google Calendar', 28, 'semibold', 'ink');
       text(box, '#event/access', 0, 60, CONTENT_W, 84, 'The panel may read and change this calendar: anyone here can answer its invitations and delete its events.', 19, 'regular', 'ink');

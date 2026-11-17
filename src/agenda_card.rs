@@ -40,6 +40,7 @@ use everyware_ui::list_item::ListItem;
 use everyware_ui::list_view::{ListEvent, ListView};
 use everyware_ui::part_of;
 use everyware_ui::segmented::{Segmented, SegmentedEvent};
+use everyware_ui::tone::Tone;
 use everyware_ui::sheet::{Edge, Layout, Sheet};
 use everyware_ui::Gesture;
 use jiff::civil::Date;
@@ -189,8 +190,10 @@ pub struct CalendarAnswer {
 pub const EVENT_QR_KEY: &str = "event/qr";
 /// The QR step's frame in the design (#event/qr), square.
 pub const EVENT_QR_SIDE: u32 = 480;
-/// The answers, in the segments' order.
-pub const RSVP: [(Rsvp, &str); 3] = [(Rsvp::RSVP_ACCEPTED, "Accept"), (Rsvp::RSVP_TENTATIVE, "Maybe"), (Rsvp::RSVP_DECLINED, "Decline")];
+/// The answers, in the segments' order, and the tone each is lit in when it is the answer:
+/// green, yellow, red.
+pub const RSVP: [(Rsvp, &str, Tone); 3] =
+    [(Rsvp::RSVP_ACCEPTED, "Accept", Tone::Success), (Rsvp::RSVP_TENTATIVE, "Maybe", Tone::Warning), (Rsvp::RSVP_DECLINED, "Decline", Tone::Error)];
 /// An answer waits this long, then the panel stops waiting: the dashboard bundle gives up after
 /// 150 s and then answers itself.
 pub const ANSWER_WAIT: Duration = Duration::from_secs(160);
@@ -211,10 +214,11 @@ impl EventPanel {
             body: ListView::new([], view_h, 0.0),
             view_h,
             step: EventStep::Details,
-            rsvp: Segmented::new(RSVP.map(|(_, label)| label)),
+            rsvp: Segmented::new(RSVP.map(|(_, label, _)| label)).tones(RSVP.map(|(_, _, tone)| tone)),
             join: Button::new(ButtonKind::Secondary, "Join on phone"),
             directions: Button::new(ButtonKind::Secondary, "Directions"),
-            delete: Button::new(ButtonKind::Secondary, "Delete"),
+            // red: it cannot be undone
+            delete: Button::new(ButtonKind::Secondary, "Delete").tone(Tone::Error),
             qr_title: String::new(),
             qr: String::new(),
             qr_host: String::new(),
@@ -450,12 +454,12 @@ impl EventPanel {
     /// The confirmation of `what`.
     fn ask(&mut self, what: Confirm) {
         self.confirming = Some(what);
-        self.confirm.label = match what {
-            Confirm::Delete => "Delete",
-            Confirm::Disconnect => "Disconnect",
-            Confirm::ChangeAccess => "Change access",
-        }
-        .to_string();
+        (self.confirm.label, self.confirm.tone) = match what {
+            // red: a deletion and an unlink cannot be undone from the panel
+            Confirm::Delete => ("Delete".to_string(), Tone::Error),
+            Confirm::Disconnect => ("Disconnect".to_string(), Tone::Error),
+            Confirm::ChangeAccess => ("Change access".to_string(), Tone::Default),
+        };
         self.error.clear();
         self.go(EventStep::Confirm);
     }
@@ -561,7 +565,7 @@ impl EventPanel {
             Some((id, sent, _)) if *id == self.offers.id => *sent,
             _ => account,
         };
-        match RSVP.iter().position(|(r, _)| *r == shown) {
+        match RSVP.iter().position(|(r, _, _)| *r == shown) {
             Some(i) => self.rsvp.select(i),
             None => self.rsvp.clear(),
         }
@@ -1307,5 +1311,27 @@ mod tests {
         assert_eq!(d.event.step, EventStep::Details);
         assert!(d.event.qr_picture().is_none());
         c.event.close();
+    }
+
+    #[test]
+    fn the_answers_and_the_destructive_buttons_have_their_tones() {
+        let mut c = opened(invitation());
+        assert_eq!((0..3).map(|i| c.event.rsvp.tone_of(i)).collect::<Vec<_>>(), [Tone::Success, Tone::Warning, Tone::Error]);
+        assert_eq!(c.event.delete.tone, Tone::Error);
+        assert_eq!((c.event.join.tone, c.event.directions.tone, c.event.back.tone, c.event.cancel.tone), (Tone::Default, Tone::Default, Tone::Default, Tone::Default));
+        // the confirmation: Delete and Disconnect red, Change access as it is
+        let mut e = event("mine", "2026-11-10T09:00:00Z", 30);
+        e.can_delete = true;
+        let mut c = opened(e);
+        press(&mut c, "#event/delete");
+        assert_eq!((c.event.confirm.label.as_str(), c.event.confirm.tone), ("Delete", Tone::Error));
+        c.event.close();
+        c.on_account(Gesture::DOWN);
+        c.on_account(Gesture::UP);
+        press(&mut c, "#event/change-access");
+        assert_eq!((c.event.confirm.label.as_str(), c.event.confirm.tone), ("Change access", Tone::Default));
+        press(&mut c, "#event/cancel");
+        press(&mut c, "#event/disconnect");
+        assert_eq!((c.event.confirm.label.as_str(), c.event.confirm.tone), ("Disconnect", Tone::Error));
     }
 }

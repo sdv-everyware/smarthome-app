@@ -207,7 +207,8 @@ module.exports = function patch(msg, helpers) {
   // (the confirmation step with the disconnect's texts)
   const eventCalendar = variantOf('#event-content', 'step=calendar');
   const calendarPanel = sheetOverlay('Calendar · right', 'right', eventCalendar);
-  const buttonLabel = under(variantOf('#button', 'kind=primary, state=default, size=regular'), '#button/label');
+  // the confirmation's button is the error tone's (event-patch.js): its label is that variant's
+  const buttonLabel = under(variantOf('#button', 'kind=primary-error, state=default, size=regular'), '#button/label');
   const disconnectPanel = sheetOverlay('Calendar · disconnect?', 'right', eventConfirm, [
     textAt(under(eventConfirm, '#event/confirm-title'), 'Disconnect the calendar?'),
     textAt(under(eventConfirm, '#event/confirm-text'), 'The panel ends its access to the Google account and forgets it. The agenda stays empty until a calendar is linked again.'),
