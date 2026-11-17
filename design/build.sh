@@ -2,8 +2,9 @@
 # The Smart HOme panel's design, from the designer's export in source/: the component library
 # (ui-lib's components-patch.js), then this app's patches: the Wi-Fi sheet (its content in the
 # library's #sheet), the dashboard's widgets (which use the library), the tabs and the screens
-# Rooms and Automations, the device sheet, the #sheet container with #panel, #prefs and #event and, for the
-# designer, the sheets as frames with a prototype. Usage, from anywhere:
+# Rooms and Automations, the device sheet, the #sheet container with #panel, #prefs, #event and
+# #game (with the game button in the status row) and, for the designer, the sheets as frames with
+# a prototype. Usage, from anywhere:
 #
 #   build.sh            # -> design/build/smarthome.fig (a build output, not in git)
 #   build.sh --dcf      # and data/smarthome.dcf from it (fig-to-dcf.sh, the previous one kept)
@@ -28,7 +29,8 @@ rt "$B/steps/4.fig" "$B/steps/5.fig" "$HERE/sheet-patch.js"
 rt "$B/steps/5.fig" "$B/steps/6.fig" "$HERE/panel-patch.js"
 rt "$B/steps/6.fig" "$B/steps/7.fig" "$HERE/prefs-patch.js"
 rt "$B/steps/7.fig" "$B/steps/8.fig" "$HERE/event-patch.js"
-rt "$B/steps/8.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
+rt "$B/steps/8.fig" "$B/steps/9.fig" "$HERE/game-patch.js"
+rt "$B/steps/9.fig" "$B/smarthome.fig" "$HERE/prototype-patch.js"
 echo "built $B/smarthome.fig"
 if [ "${1:-}" = --dcf ]; then
     DCF_CHECK='#home/title' \

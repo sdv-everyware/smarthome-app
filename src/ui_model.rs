@@ -56,6 +56,24 @@ impl Customizer<bool> for BrowserZoneCustomizer {
     }
 }
 
+/// The game's picture (#game/picture) as a zone of game::ZONE_TAG. On only while the game's
+/// dialog is open and a game runs: closed, the looper reports the scene hidden and the game
+/// pauses itself (doom-app). Applied once, whatever --zone-redraw says: the game's frames drive
+/// the redraws, so an open dialog costs a redraw per game frame and no timer on top of it (the
+/// timer is for the browser, whose touch it once seemed to need).
+#[derive(Clone, Debug, Default)]
+pub struct GameZoneCustomizer {}
+
+impl Customizer<bool> for GameZoneCustomizer {
+    fn format(&mut self, enabled: bool) -> CustomizerOutput {
+        if enabled {
+            CustomizerOutput::new_finished(RenderCustomization::ExternalImage(ExternalImageContent::new(crate::game::ZONE_TAG)))
+        } else {
+            CustomizerOutput::new_finished(RenderCustomization::Display(DisplayState::Visible))
+        }
+    }
+}
+
 /// A node as the zone `tag`, or its design fill.
 fn zone(tag: &str, enabled: bool) -> CustomizerOutput {
     if enabled {
@@ -185,6 +203,10 @@ ui_model! {
     // component into the slot and customizes the clone on its own; taps come by the slot's name
     presence: Slot = "#status/presence" ["SlotCustomizer"];
     wifi_indicator: Slot = "#status/wifi" ["SlotCustomizer"];
+    // the game button, left of the Wi-Fi indicator (design/game-patch.js); out of the row (gone)
+    // when the image has no game (config::game)
+    game_button: Slot = "#status/game" ["SlotCustomizer"];
+    game_button_display: DisplayState = "#status/game" = DisplayState::Gone;
 
     // climate
     climate_minus: Slot = "#climate/minus" ["SlotCustomizer"];
@@ -360,6 +382,24 @@ ui_model! {
     _prefs_wifi_tap: () = "#prefs/wifi" interactive;
     prefs_wifi: String = "#prefs/wifi/value";
     prefs_about: String = "#prefs/about";
+
+    // The game: #game, the library's #sheet as a dialog (design/game-patch.js) with #game-content
+    // in it; the card and the scrim moved by the app, as #device. The picture is a zone the game
+    // process draws (game.rs); under it the status until the game's first frame. The pad's and
+    // Fire's and Use's buttons are the game's keys while they are held.
+    game_scrim: Meter = "#game/scrim" ["FollowOpacityCustomizer"] = Meter::new(0.0, None);
+    game_scrim_taps: TapTarget = "#game/scrim" ["TapTargetCustomizer"];
+    game_card: Position = "#game/card" ["FollowPositionCustomizer"] = Position::new(crate::state::GAME_LAYOUT.closed(crate::state::SCREEN), None);
+    _game_card_tap: () = "#game/card" interactive;
+    game_close: Slot = "#game/close" ["SlotCustomizer"];
+    game_status: String = "#game/status";
+    game_zone: bool = "#game/picture" ["GameZoneCustomizer"] = false;
+    game_up: Slot = "#game/up" ["SlotCustomizer"];
+    game_down: Slot = "#game/down" ["SlotCustomizer"];
+    game_left: Slot = "#game/left" ["SlotCustomizer"];
+    game_right: Slot = "#game/right" ["SlotCustomizer"];
+    game_fire: Slot = "#game/fire" ["SlotCustomizer"];
+    game_use: Slot = "#game/use" ["SlotCustomizer"];
 
     // The screen's keyboard: an instance of #keyboard-dock, the library's keyboard in its slot
     // (labels, pressed keys, taps). The app never sets the dock's variant (a variant switch

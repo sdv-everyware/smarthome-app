@@ -1,8 +1,8 @@
 // prototype-patch.js: the sheets for the designer, as DesignCompose does it in Figma. Run last
 // (build.sh): it uses #sheet and #keyboard-dock (components-patch.js), #wifi-content
 // (keyboard-patch.js), #device-content (sheet-patch.js), #panel-content (panel-patch.js),
-// #prefs-content (prefs-patch.js), #event-content (event-patch.js) and the
-// dashboard's names (dashboard-patch.js).
+// #prefs-content (prefs-patch.js), #event-content (event-patch.js), #game-content and
+// #status/game (game-patch.js) and the dashboard's names (dashboard-patch.js).
 //
 // On the screen the sheets are instances in their closed variant, below the screen edge; the app
 // opens them by their variant (harry does not read Figma prototypes). Here each sheet is also a
@@ -14,6 +14,7 @@
 //   a tile's header   -> Device sheet · <device> (overlay); in Rooms a device tile, the same
 //   #settings         -> Settings · right (overlay from the right, the right half of the screen)
 //   #agenda/list      -> Event · right (an event's details, from the right)
+//   #status/game      -> Game · dialog (the game's picture and its keys)
 //   Cancel, Connect, the close button, a tap outside a card -> close
 //
 // The buttons inside a card are instances; their taps are transparent hotspot frames on top.
@@ -185,6 +186,13 @@ module.exports = function patch(msg, helpers) {
   if (!agendaList) throw new Error('#agenda/list not found: run dashboard-patch.js first');
   onTap(agendaList, openPanel(eventPanel.overlay));
   onTap(hotspot(eventPanel.overlay, eventContent, '#event/close', 'close'), close());
+  // the game (game-patch.js), a dialog from the status row's game button; close at the title bar
+  const gameContent = variantOf('#game-content', 'state=default');
+  const game = sheetOverlay('Game · dialog', 'dialog', gameContent);
+  const gameButton = nodes.find(n => n.name === '#status/game');
+  if (!gameButton) throw new Error('#status/game not found: run game-patch.js first');
+  onTap(gameButton, openOverlay(game.overlay, game.from));
+  onTap(hotspot(game.overlay, gameContent, '#game/close', 'close'), close());
 
   // ---- the tabs as screens: the header and the bottom bar copied over the root's background,
   // the content the Overview's (copied) or a screen set's shown variant; the header's tabs

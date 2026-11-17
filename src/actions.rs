@@ -5,7 +5,7 @@
 use crate::clock::Clock;
 use crate::screen_binder::{self, MatterCommandResult, WifiCommandResult};
 use crate::devices::{DeviceId, Devices, Reported};
-use crate::state::{Dashboard, DeviceSheet, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
+use crate::state::{Dashboard, DeviceSheet, GamePanel, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
 use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
 use harry::side_effects::SideEffects;
@@ -68,6 +68,10 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
+                // the game's dialog follows a game that ends or starts while it is open
+                if state.game.sheet.is_open() {
+                    state.game.follow(crate::game::running());
+                }
                 #[cfg(browser)]
                 browser_timeout(state);
             }
@@ -110,11 +114,18 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Gesture(node, gesture) if state.prefs.sheet.is_open() => on_prefs(state, node, *gesture),
+            HomeAction::Gesture(node, gesture) if state.game.sheet.is_open() => on_game(&mut state.game, node, *gesture),
             HomeAction::Gesture(node, gesture) if state.agenda.event.is_open() => on_event(&mut state.agenda.event, node, *gesture),
             HomeAction::Gesture(node, gesture) if node == "#settings" && !state.device.container.is_open() && !state.wifi.form.is_open() => {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
                     state.prefs.open();
+                }
+            }
+            HomeAction::Gesture(node, gesture) if node == "#status/game" && crate::config::game() && !state.device.container.is_open() && !state.wifi.form.is_open() => {
+                // the game button opens the game; the game goes on where it paused
+                if clicked(&mut state.dash.game, *gesture) {
+                    state.game.open(crate::game::running(), &state.sizes);
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -275,6 +286,38 @@ fn on_event(panel: &mut crate::agenda_card::EventPanel, node: &str, gesture: Ges
 
 fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
     button.on(gesture) == Some(ButtonEvent::Clicked)
+}
+
+/// The game's dialog while it is open: the scrim and close close it and let every key go; a
+/// key's button holds its key from the finger's down until it lifts or slides off, and a thumb
+/// that slides across the pad holds the direction it is on (game.rs Pad). Two fingers hold two
+/// keys when each reaches the panel as a touch of its own (not verified on the board: harry's
+/// evdev reader reports one finger per input frame). The card takes the rest. Closed, the zone
+/// is hidden and the game pauses.
+fn on_game(game: &mut GamePanel, node: &str, gesture: Gesture) {
+    let scrim = node == "#game/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
+    let changes = if scrim || (node == "#game/close" && clicked(&mut game.close, gesture)) {
+        game.close()
+    } else {
+        match (crate::game::Pad::index(node), node) {
+            (Some(i), _) => game.pad.on(i, gesture),
+            (None, "#game/fire") => {
+                game.fire.on(gesture);
+            }
+            (None, "#game/use") => {
+                game.use_key.on(gesture);
+            }
+            _ => return,
+        }
+        let keys = game.keys();
+        game.held.follow(keys)
+    };
+    if let Err(e) = crate::game::send(&changes) {
+        if !game.unsent {
+            log::warn!("smarthome: game: the keys did not reach the game: {e} (is it running?)");
+            game.unsent = true;
+        }
+    }
 }
 
 /// A control of a device the dashboard changed: a command for the device.

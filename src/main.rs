@@ -38,6 +38,7 @@ mod browser;
 mod clock;
 mod config;
 mod devices;
+mod game;
 mod screen_binder;
 
 mod presenter;
