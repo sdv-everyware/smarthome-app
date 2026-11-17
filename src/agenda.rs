@@ -272,7 +272,18 @@ pub fn details(event: &AgendaEvent, today: Date, tz: &TimeZone, hour24: bool) ->
 /// The event's meeting link as plain text: https and no space, else none.
 fn meeting_link(event: &AgendaEvent) -> Option<String> {
     let link = plain(&event.meeting_url);
-    (link.starts_with("https://") && !link.contains(' ')).then_some(link)
+    plain_https(&link).then_some(link)
+}
+
+/// Whether `uri` is an https link that reads as it opens: only the characters of RFC 3986 (no
+/// backslash, which a browser takes for a `/`, no space, no control character) and no user part
+/// (a meeting link has none, and `user@host` shows another host than it opens). The calendar
+/// bundle keeps the same rule; the panel checks it again on what it shows.
+pub fn plain_https(uri: &str) -> bool {
+    let Some(rest) = uri.strip_prefix("https://") else { return false };
+    let allowed = |c: char| c.is_ascii_alphanumeric() || "-._~:/?#[]@!$&'()*+,;=%".contains(c);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !authority.is_empty() && !authority.contains('@') && uri.chars().all(allowed)
 }
 
 /// What the panel of an event offers besides its details: a QR code of its meeting ("Join on
@@ -309,13 +320,16 @@ pub fn offers(event: &AgendaEvent) -> Offers {
     }
 }
 
-/// The host a link opens, as the QR step shows it under the code ("meet.google.com"): https only,
-/// the user part and the port left out, and only a host of ASCII letters, digits, dots and dashes
-/// (a name that could pass for another in other letters gets no code). None: no code for it.
+/// The host a link opens, as the QR step shows it under the code ("meet.google.com"): a link
+/// that reads as it opens only (`plain_https`: no backslash, no user part), the port left out,
+/// and only a host of ASCII letters, digits, dots and dashes (a name that could pass for another
+/// in other letters gets no code). None: no code for it.
 pub fn link_host(url: &str) -> Option<String> {
+    if !plain_https(url) {
+        return None;
+    }
     let rest = url.strip_prefix("https://")?;
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let host = authority.rsplit('@').next()?;
+    let host = rest.split(['/', '?', '#']).next()?;
     let host = match host.rsplit_once(':') {
         Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
         _ => host,
@@ -856,13 +870,31 @@ mod tests {
     fn the_host_a_link_opens() {
         assert_eq!(link_host("https://meet.google.com/abc-defg-hij").as_deref(), Some("meet.google.com"));
         assert_eq!(link_host("https://Zoom.US:443/j/1?pwd=x#a").as_deref(), Some("zoom.us"));
-        // the user part is not the host: the phone opens evil.example
-        assert_eq!(link_host("https://meet.google.com@evil.example/x").as_deref(), Some("evil.example"));
+        // a user part or a backslash would show another host than the phone opens: no code
+        assert_eq!(link_host("https://meet.google.com@evil.example/x"), None);
+        assert_eq!(link_host("https://evil.example\\@meet.google.com/x"), None);
+        assert_eq!(link_host("https://evil.example\\meet.google.com"), None);
+        assert_eq!(link_host("https://user:pw@meet.google.com/x"), None);
+        assert_eq!(link_host("https://meet.google.com/a<b"), None);
         assert_eq!(link_host("https://www.google.com/maps/search/?api=1&query=x").as_deref(), Some("www.google.com"));
         // not https, no host, a host in other letters, an address in brackets: no code
         for bad in ["http://meet.google.com/x", "javascript:alert(1)", "https://", "https:///x", "https://gооgle.com/x", "https://[::1]/x", "https://a b/x"] {
             assert_eq!(link_host(bad), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn a_meeting_link_that_reads_as_another_is_not_offered() {
+        let mut e = event("Sync", "2026-11-17T07:30:00Z", 30);
+        for bad in ["https://evil.example\\@meet.google.com/x", "https://meet.google.com@evil.example/x"] {
+            e.meeting_url = bad.to_string();
+            let o = offers(&e);
+            assert_eq!(o.join, None, "{bad}");
+            let tz = TimeZone::UTC;
+            assert_eq!(details(&e, at("2026-11-17T06:00:00Z").to_zoned(tz.clone()).date(), &tz, true).link, "", "{bad}: not even as text");
+        }
+        e.meeting_url = "https://meet.google.com/abc-defg-hij".to_string();
+        assert_eq!(offers(&e).join.as_deref(), Some("https://meet.google.com/abc-defg-hij"));
     }
 
     #[test]

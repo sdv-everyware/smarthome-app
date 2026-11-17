@@ -131,7 +131,13 @@ pub struct EventPanel {
     /// failed.
     status: String,
     pub error: String,
+    /// Why a change failed while its panel was not shown, by its key (the event's id, empty for
+    /// the calendar's link): said when that panel opens again. The newest `MISSED` at most.
+    missed: Vec<(String, String)>,
 }
+
+/// Failures kept for panels not shown, at most.
+const MISSED: usize = 8;
 
 /// The steps of the event's panel: #event-content's variants.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -231,6 +237,7 @@ impl EventPanel {
             disconnect: Button::new(ButtonKind::Secondary, "Disconnect"),
             pending: None,
             sent_answer: None,
+            missed: Vec::new(),
             status: String::new(),
             error: String::new(),
         }
@@ -244,7 +251,8 @@ impl EventPanel {
         self.body = ListView::new([ListItem::default()], self.view_h, height.max(0.0));
         self.offers = offers;
         self.go(EventStep::Details);
-        self.error.clear();
+        let key = self.offers.id.clone();
+        self.error = self.take_missed(&key);
         self.follow_answer();
         self.sheet.open();
     }
@@ -282,7 +290,7 @@ impl EventPanel {
             "The panel may read this calendar."
         }
         .to_string();
-        self.error.clear();
+        self.error = self.take_missed("");
         self.go(EventStep::Calendar);
         self.sheet.open();
     }
@@ -350,8 +358,8 @@ impl EventPanel {
 
     /// The command did not go out (no link to the house's data): nothing waits for it.
     pub fn sent(&mut self, went_out: bool) {
-        if !went_out && self.pending.take().is_some() {
-            self.fail(NO_LINK, true);
+        if let Some(pending) = self.pending.take().filter(|_| !went_out) {
+            self.fail(NO_LINK, &pending);
         }
     }
 
@@ -382,7 +390,7 @@ impl EventPanel {
             }
         } else {
             log::warn!("smarthome: calendar {} not done: {:?} {}", answer.command, answer.result.failure, answer.result.error);
-            self.fail(failure_text(answer.command.as_str(), answer.result.failure.enum_value_or_default()), here);
+            self.fail(failure_text(answer.command.as_str(), answer.result.failure.enum_value_or_default()), &pending);
         }
     }
 
@@ -392,8 +400,7 @@ impl EventPanel {
     pub fn follow(&mut self, house_link: bool, now: Instant) {
         let late = self.pending.as_ref().is_some_and(|p| now.saturating_duration_since(p.since) > ANSWER_WAIT);
         if let Some(pending) = self.pending.take_if(|_| late || !house_link) {
-            let here = self.shows(&pending);
-            self.fail(if house_link { NO_ANSWER } else { NO_LINK }, here);
+            self.fail(if house_link { NO_ANSWER } else { NO_LINK }, &pending);
         }
         if self.sent_answer.as_ref().is_some_and(|(_, _, at)| now.saturating_duration_since(*at) > KEEP_ANSWER) {
             self.sent_answer = None;
@@ -534,15 +541,32 @@ impl EventPanel {
         self.pending.as_ref().is_some_and(|p| p.command == command)
     }
 
-    /// A command failed: the controls on again; why, on the panel it was made from (`here`).
-    fn fail(&mut self, why: &str, here: bool) {
+    /// `pending` failed: the controls on again; why, on its panel when it is the one shown, or
+    /// kept for when that panel opens again.
+    fn fail(&mut self, why: &str, pending: &Pending) {
         self.status.clear();
-        if here {
+        if self.shows(pending) {
             self.error = why.to_string();
+        } else {
+            let key = if pending.command == "disconnect" { String::new() } else { pending.event_id.clone() };
+            self.missed.retain(|(k, _)| *k != key);
+            self.missed.push((key, why.to_string()));
+            if self.missed.len() > MISSED {
+                self.missed.remove(0);
+            }
         }
         self.enable(true);
         // the answer shown is the account's again, not the one the finger chose
         self.follow_answer();
+    }
+
+    /// The failure kept for the panel of `key` (an event's id, empty for the calendar's link),
+    /// taken: it is said once; none: empty.
+    fn take_missed(&mut self, key: &str) -> String {
+        match self.missed.iter().position(|(k, _)| k == key) {
+            Some(i) => self.missed.remove(i).1,
+            None => String::new(),
+        }
     }
 
     /// The controls that start a change, on or off while one runs.
@@ -1249,6 +1273,16 @@ mod tests {
         // a's deletion fails: b's panel shows no error of a, and its controls come back
         c.event.answered(&answer("delete", "a", Some(CalendarFailure::CALENDAR_FAILURE_AGAIN)), Instant::now());
         assert!(c.event.is_open() && c.event.error.is_empty() && c.event.delete.press.enabled && c.event.status_line().is_empty());
+        // a's panel opened again says why (once), b's again says nothing
+        c.event.close();
+        tap_row(&mut c, 1);
+        assert_eq!(c.event.error, failure_text("delete", CalendarFailure::CALENDAR_FAILURE_AGAIN));
+        c.event.close();
+        tap_row(&mut c, 1);
+        assert!(c.event.error.is_empty(), "said once");
+        c.event.close();
+        tap_row(&mut c, 2);
+        assert!(c.event.error.is_empty());
         // again, and this time it goes through: b's panel stays open
         c.event.close();
         tap_row(&mut c, 1);
