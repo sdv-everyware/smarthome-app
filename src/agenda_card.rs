@@ -1349,7 +1349,7 @@ mod tests {
 
     #[test]
     fn the_answers_and_the_destructive_buttons_have_their_tones() {
-        let mut c = opened(invitation());
+        let c = opened(invitation());
         assert_eq!((0..3).map(|i| c.event.rsvp.tone_of(i)).collect::<Vec<_>>(), [Tone::Success, Tone::Warning, Tone::Error]);
         assert_eq!(c.event.delete.tone, Tone::Error);
         assert_eq!((c.event.join.tone, c.event.directions.tone, c.event.back.tone, c.event.cancel.tone), (Tone::Default, Tone::Default, Tone::Default, Tone::Default));
