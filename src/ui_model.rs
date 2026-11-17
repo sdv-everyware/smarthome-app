@@ -303,9 +303,11 @@ ui_model! {
     event_status_display: DisplayState = "#event/status";
     event_error: String = "#event/error";
     event_error_display: DisplayState = "#event/error";
-    // the QR step: what the code is for, the code (a picture the app makes), Back
+    // the QR step: what the code is for, the code (a picture the app makes), the host the phone
+    // will open, Back
     event_qr_title: String = "#event/qr-title";
     event_qr: Picture = "#event/qr" ["PictureCustomizer"];
+    event_qr_host: String = "#event/qr-host";
     event_back: Slot = "#event/back" ["SlotCustomizer"];
     // the confirmation step: the question, a line (out of the step when empty), Cancel, the action
     event_confirm_title: String = "#event/confirm-title";

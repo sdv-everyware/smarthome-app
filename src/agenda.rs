@@ -309,6 +309,21 @@ pub fn offers(event: &AgendaEvent) -> Offers {
     }
 }
 
+/// The host a link opens, as the QR step shows it under the code ("meet.google.com"): https only,
+/// the user part and the port left out, and only a host of ASCII letters, digits, dots and dashes
+/// (a name that could pass for another in other letters gets no code). None: no code for it.
+pub fn link_host(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("https://")?;
+    let authority = rest.split(['/', '?', '#']).next()?;
+    let host = authority.rsplit('@').next()?;
+    let host = match host.rsplit_once(':') {
+        Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => host,
+    };
+    let plain = !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-');
+    plain.then(|| host.to_ascii_lowercase())
+}
+
 /// Google Maps' search of `place` (its URL API, `api=1`): the place URL-encoded into the query,
 /// so nothing in it reaches another parameter or the path.
 pub fn maps_url(place: &str) -> String {
@@ -835,6 +850,19 @@ mod tests {
         // the details say whether the answers show
         let tz = TimeZone::UTC;
         assert!(details(&e, at("2026-11-17T06:00:00Z").to_zoned(tz.clone()).date(), &tz, true).respond);
+    }
+
+    #[test]
+    fn the_host_a_link_opens() {
+        assert_eq!(link_host("https://meet.google.com/abc-defg-hij").as_deref(), Some("meet.google.com"));
+        assert_eq!(link_host("https://Zoom.US:443/j/1?pwd=x#a").as_deref(), Some("zoom.us"));
+        // the user part is not the host: the phone opens evil.example
+        assert_eq!(link_host("https://meet.google.com@evil.example/x").as_deref(), Some("evil.example"));
+        assert_eq!(link_host("https://www.google.com/maps/search/?api=1&query=x").as_deref(), Some("www.google.com"));
+        // not https, no host, a host in other letters, an address in brackets: no code
+        for bad in ["http://meet.google.com/x", "javascript:alert(1)", "https://", "https:///x", "https://gооgle.com/x", "https://[::1]/x", "https://a b/x"] {
+            assert_eq!(link_host(bad), None, "{bad}");
+        }
     }
 
     #[test]

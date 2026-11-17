@@ -30,7 +30,7 @@
 //     the bottom #event/actions, a row that closes up, with #event/join and #event/directions
 //     (secondary buttons), and #event/delete at the right.
 //   - qr: #event/qr-title, #event/qr (a plain frame: the app draws the QR code on it), "Scan with
-//     your phone", #event/back.
+//     your phone", #event/qr-host (the host the phone will open), #event/back.
 //   - confirm: #event/confirm-title, #event/confirm-text, #event/cancel and #event/confirm (its
 //     label the app's).
 //   - calendar: "Google Calendar", #event/access (the access in words, the app's), what the two
@@ -155,6 +155,8 @@ module.exports = function patch(msg, helpers) {
       // a plain frame: harry draws a picture on a plain frame only
       frame(box, '#event/qr', (CONTENT_W - QR) / 2, QR_Y, QR, QR, { fillPaints: [A.solid(C.line)] });
       A.text(box, 'Scan hint', 0, QR_Y + QR + 24, CONTENT_W, 28, 'Scan with your phone', 19, FONT.regular, C.ink2, 'CENTER', 'TOP', { maxLines: 1, textTruncation: 'ENDING' });
+      // the host the phone will open: who sent the link, the reader decides
+      A.text(box, '#event/qr-host', 0, QR_Y + QR + 24 + 28 + 8, CONTENT_W, 26, 'Opens meet.google.com', 17, FONT.medium, C.ink, 'CENTER', 'TOP', { maxLines: 1, textTruncation: 'ENDING' });
       slotted(box, '#event/back', 0, ROW_Y, secondary, 'Back');
     } else if (v.step === 'confirm') {
       text(box, '#event/confirm-title', 0, 0, TITLE_W, 36, 'Delete this event?', 28, 'semibold', 'ink');

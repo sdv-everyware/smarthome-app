@@ -106,9 +106,11 @@ pub struct EventPanel {
     pub join: Button,
     pub directions: Button,
     pub delete: Button,
-    /// The QR step: what the code is for, its address (a picture under EVENT_QR_KEY), Back.
+    /// The QR step: what the code is for, its address (a picture under EVENT_QR_KEY), the host
+    /// the phone will open (under the code), Back.
     pub qr_title: String,
     qr: String,
+    pub qr_host: String,
     pub back: Button,
     /// The confirmation step: what it confirms, Cancel and the action.
     pub confirming: Option<Confirm>,
@@ -120,8 +122,13 @@ pub struct EventPanel {
     pub disconnect: Button,
     /// The command on its way, until its answer.
     pub pending: Option<Pending>,
-    /// What the panel waits for, and why the last command failed (one line each, one at a time).
-    pub status: String,
+    /// An answer to an invitation that went through, while the agenda does not show it yet (the
+    /// read after the change failed): the event, the answer and when; it stays lit until the
+    /// agenda has it, `KEEP_ANSWER` at most.
+    sent_answer: Option<(String, Rsvp, Instant)>,
+    /// What the panel waits for (`status_line`), and why the last command of the panel shown
+    /// failed.
+    status: String,
     pub error: String,
 }
 
@@ -165,6 +172,8 @@ pub struct Pending {
     pub command: &'static str,
     /// The event it is for; empty for a disconnect.
     pub event_id: String,
+    /// The answer sent, for "respond".
+    response: Option<Rsvp>,
     since: Instant,
 }
 
@@ -183,8 +192,13 @@ pub const EVENT_QR_SIDE: u32 = 480;
 /// The answers, in the segments' order.
 pub const RSVP: [(Rsvp, &str); 3] = [(Rsvp::RSVP_ACCEPTED, "Accept"), (Rsvp::RSVP_TENTATIVE, "Maybe"), (Rsvp::RSVP_DECLINED, "Decline")];
 /// An answer waits this long, then the panel stops waiting: the dashboard bundle gives up after
-/// 90 s and then answers itself.
-pub const ANSWER_WAIT: Duration = Duration::from_secs(100);
+/// 150 s and then answers itself.
+pub const ANSWER_WAIT: Duration = Duration::from_secs(160);
+/// An answer that went through stays lit this long at most while the agenda does not show it
+/// (a read interval and a half: the next read brings it).
+pub const KEEP_ANSWER: Duration = Duration::from_secs(90);
+/// The line of a panel whose controls are off for a change of another panel.
+pub const OTHER_CHANGE: &str = "Another change is on its way.";
 
 impl EventPanel {
     fn new(view_h: f32) -> Self {
@@ -203,6 +217,7 @@ impl EventPanel {
             delete: Button::new(ButtonKind::Secondary, "Delete"),
             qr_title: String::new(),
             qr: String::new(),
+            qr_host: String::new(),
             back: Button::new(ButtonKind::Secondary, "Back"),
             confirming: None,
             cancel: Button::new(ButtonKind::Secondary, "Cancel"),
@@ -211,6 +226,7 @@ impl EventPanel {
             change_access: Button::new(ButtonKind::Secondary, "Change access"),
             disconnect: Button::new(ButtonKind::Secondary, "Disconnect"),
             pending: None,
+            sent_answer: None,
             status: String::new(),
             error: String::new(),
         }
@@ -244,6 +260,10 @@ impl EventPanel {
         };
         if gone {
             self.go(EventStep::Details);
+        }
+        // the agenda shows the answer that went through: it is the account's now
+        if self.sent_answer.as_ref().is_some_and(|(id, sent, _)| *id == self.offers.id && self.offers.respond == Some(*sent)) {
+            self.sent_answer = None;
         }
         self.follow_answer();
     }
@@ -327,41 +347,72 @@ impl EventPanel {
     /// The command did not go out (no link to the house's data): nothing waits for it.
     pub fn sent(&mut self, went_out: bool) {
         if !went_out && self.pending.take().is_some() {
-            self.fail(NO_LINK);
+            self.fail(NO_LINK, true);
         }
     }
 
-    /// The calendar bundle's answer: the panel stops waiting, says why a change failed, and
-    /// closes after a deletion or an unlink. Another command's answer (a late one) changes
-    /// nothing.
-    pub fn answered(&mut self, answer: &CalendarAnswer) {
+    /// The calendar bundle's answer at `now`: the panel stops waiting, says why a change failed
+    /// (on the panel the change was made from only), and closes after a deletion or an unlink of
+    /// what it shows. Another command's answer (a late one) changes nothing.
+    pub fn answered(&mut self, answer: &CalendarAnswer, now: Instant) {
         let ours = self.pending.as_ref().is_some_and(|p| p.command == answer.command && p.event_id == answer.event_id);
         if !ours {
             log::info!("smarthome: a calendar answer no command waits for ({})", answer.command);
             return;
         }
-        self.pending = None;
+        let pending = self.pending.take().expect("ours");
+        let here = self.shows(&pending);
         if answer.result.ok {
             self.status.clear();
             self.enable(true);
             match answer.command.as_str() {
-                // the agenda after it came first; a panel still open on the event closes
-                "delete" | "disconnect" => self.close(),
-                _ => self.follow_answer(),
+                // the agenda after it came first; the panel of what is gone closes, not another
+                "delete" | "disconnect" if here => self.close(),
+                "respond" => {
+                    if let Some(sent) = pending.response {
+                        self.sent_answer = Some((pending.event_id.clone(), sent, now));
+                    }
+                    self.follow_answer();
+                }
+                _ => {}
             }
         } else {
             log::warn!("smarthome: calendar {} not done: {:?} {}", answer.command, answer.result.failure, answer.result.error);
-            self.fail(failure_text(answer.command.as_str(), answer.result.failure.enum_value_or_default()));
+            self.fail(failure_text(answer.command.as_str(), answer.result.failure.enum_value_or_default()), here);
         }
     }
 
     /// After every action: an answer that does not come (the dashboard bundle gone) is waited for
-    /// `ANSWER_WAIT` at most; without the link to the house's data, not at all.
+    /// `ANSWER_WAIT` at most, without the link to the house's data not at all; an answer that went
+    /// through stays lit `KEEP_ANSWER` at most.
     pub fn follow(&mut self, house_link: bool, now: Instant) {
         let late = self.pending.as_ref().is_some_and(|p| now.saturating_duration_since(p.since) > ANSWER_WAIT);
-        if self.pending.is_some() && (late || !house_link) {
-            self.pending = None;
-            self.fail(if house_link { NO_ANSWER } else { NO_LINK });
+        if let Some(pending) = self.pending.take_if(|_| late || !house_link) {
+            let here = self.shows(&pending);
+            self.fail(if house_link { NO_ANSWER } else { NO_LINK }, here);
+        }
+        if self.sent_answer.as_ref().is_some_and(|(_, _, at)| now.saturating_duration_since(*at) > KEEP_ANSWER) {
+            self.sent_answer = None;
+            self.follow_answer();
+        }
+    }
+
+    /// What the panel waits for, when the change is the one of what it shows; the controls of
+    /// another panel are off with a line that says why.
+    pub fn status_line(&self) -> &str {
+        match &self.pending {
+            Some(p) if self.shows(p) => &self.status,
+            Some(_) => OTHER_CHANGE,
+            None => "",
+        }
+    }
+
+    /// Whether the panel shows what `pending` is for: the event it changes, or the calendar's
+    /// link (its step and its confirmations) for an unlink.
+    fn shows(&self, pending: &Pending) -> bool {
+        match pending.command {
+            "disconnect" => self.id.is_none(),
+            _ => self.id.as_deref() == Some(pending.event_id.as_str()),
         }
     }
 
@@ -372,7 +423,7 @@ impl EventPanel {
         respond.response = response.into();
         let mut command = CalendarCommand::new();
         command.set_respond(respond);
-        self.wait("respond", id, "Sending the answer…", now);
+        self.wait("respond", id, Some(response), "Sending the answer…", now);
         Some(command)
     }
 
@@ -386,11 +437,11 @@ impl EventPanel {
                 let mut delete = CalendarDelete::new();
                 delete.event_id = self.offers.id.clone();
                 command.set_delete(delete);
-                self.wait("delete", self.offers.id.clone(), "Deleting the event…", now);
+                self.wait("delete", self.offers.id.clone(), None, "Deleting the event…", now);
             }
             Confirm::Disconnect | Confirm::ChangeAccess => {
                 command.set_disconnect(CalendarDisconnect::new());
-                self.wait("disconnect", String::new(), "Disconnecting the calendar…", now);
+                self.wait("disconnect", String::new(), None, "Disconnecting the calendar…", now);
             }
         }
         Some(command)
@@ -420,14 +471,14 @@ impl EventPanel {
         }
     }
 
-    /// The QR step for `url`, titled `title`; none: nothing to show.
+    /// The QR step for `url`, titled `title`, with the host the phone will open under the code;
+    /// a code only for an https link with a plain host (agenda::link_host), none otherwise.
     fn qr_step(&mut self, title: &str, url: Option<String>) {
-        if url.is_none() {
-            return;
-        }
-        self.show_qr(url);
+        let Some((url, host)) = url.and_then(|url| agenda::link_host(&url).map(|host| (url, host))) else { return };
+        self.show_qr(Some(url));
         if !self.qr.is_empty() {
             self.qr_title = title.to_string();
+            self.qr_host = host;
             self.go(EventStep::Qr);
         }
     }
@@ -468,8 +519,8 @@ impl EventPanel {
         self.step = step;
     }
 
-    fn wait(&mut self, command: &'static str, event_id: String, status: &str, now: Instant) {
-        self.pending = Some(Pending { command, event_id, since: now });
+    fn wait(&mut self, command: &'static str, event_id: String, response: Option<Rsvp>, status: &str, now: Instant) {
+        self.pending = Some(Pending { command, event_id, response, since: now });
         self.status = status.to_string();
         self.error.clear();
         self.enable(false);
@@ -479,9 +530,12 @@ impl EventPanel {
         self.pending.as_ref().is_some_and(|p| p.command == command)
     }
 
-    fn fail(&mut self, why: &str) {
+    /// A command failed: the controls on again; why, on the panel it was made from (`here`).
+    fn fail(&mut self, why: &str, here: bool) {
         self.status.clear();
-        self.error = why.to_string();
+        if here {
+            self.error = why.to_string();
+        }
         self.enable(true);
         // the answer shown is the account's again, not the one the finger chose
         self.follow_answer();
@@ -496,14 +550,21 @@ impl EventPanel {
     }
 
     /// The segment of the account's answer lit, none while it has not answered; left alone while
-    /// an answer is on its way (the finger's choice shows).
+    /// an answer is on its way (the finger's choice shows), and the answer that went through while
+    /// the agenda does not show it yet.
     fn follow_answer(&mut self) {
         if self.waits_for("respond") {
             return;
         }
-        let answer = self.offers.respond.unwrap_or_default();
-        // past the last segment: none lit (Segmented::target lights the chosen one only)
-        self.rsvp.selected = RSVP.iter().position(|(r, _)| *r == answer).unwrap_or(RSVP.len());
+        let account = self.offers.respond.unwrap_or_default();
+        let shown = match &self.sent_answer {
+            Some((id, sent, _)) if *id == self.offers.id => *sent,
+            _ => account,
+        };
+        match RSVP.iter().position(|(r, _)| *r == shown) {
+            Some(i) => self.rsvp.select(i),
+            None => self.rsvp.clear(),
+        }
     }
 }
 
@@ -996,7 +1057,7 @@ mod tests {
         assert_eq!((command.respond().event_id.as_str(), command.respond().response.enum_value_or_default()), ("inv_20261110T090000Z", Rsvp::RSVP_TENTATIVE));
         // waiting: Maybe lit, the controls off, a line says so; another tap sends nothing
         assert_eq!(c.event.rsvp.target(1), 100.0);
-        assert!(!c.event.rsvp.press.enabled && !c.event.status.is_empty());
+        assert!(!c.event.rsvp.press.enabled && !c.event.status_line().is_empty());
         assert_eq!(press(&mut c, "#event/rsvp/#segmented/segment-1"), None);
         // the agenda after the change comes first, then the answer
         let mut e = invitation();
@@ -1004,8 +1065,8 @@ mod tests {
         let mut agenda = linked(vec![e]);
         agenda.can_change = true;
         c.set(agenda, "UTC", true, at("2026-11-10T08:01:00Z"));
-        c.event.answered(&answer("respond", "inv_20261110T090000Z", None));
-        assert!(c.event.pending.is_none() && c.event.rsvp.press.enabled && c.event.status.is_empty() && c.event.error.is_empty());
+        c.event.answered(&answer("respond", "inv_20261110T090000Z", None), Instant::now());
+        assert!(c.event.pending.is_none() && c.event.rsvp.press.enabled && c.event.status_line().is_empty() && c.event.error.is_empty());
         assert_eq!(c.event.rsvp.target(1), 100.0, "the account's answer now");
     }
 
@@ -1017,11 +1078,11 @@ mod tests {
         assert_eq!(c.event.rsvp.target(0), 100.0, "Accept is the account's answer");
         press(&mut c, "#event/rsvp/#segmented/segment-3").expect("a command");
         // an answer of another command changes nothing
-        c.event.answered(&answer("delete", "other", None));
+        c.event.answered(&answer("delete", "other", None), Instant::now());
         assert!(c.event.pending.is_some());
-        c.event.answered(&answer("respond", "inv_20261110T090000Z", Some(CalendarFailure::CALENDAR_FAILURE_READ_ONLY)));
+        c.event.answered(&answer("respond", "inv_20261110T090000Z", Some(CalendarFailure::CALENDAR_FAILURE_READ_ONLY)), Instant::now());
         assert_eq!(c.event.error, "The panel may only read this calendar.");
-        assert!(c.event.status.is_empty() && c.event.rsvp.press.enabled);
+        assert!(c.event.status_line().is_empty() && c.event.rsvp.press.enabled);
         assert_eq!((c.event.rsvp.target(0), c.event.rsvp.target(2)), (100.0, 0.0));
         // every failure has its words
         for f in [CalendarFailure::CALENDAR_FAILURE_GONE, CalendarFailure::CALENDAR_FAILURE_NOT_ALLOWED, CalendarFailure::CALENDAR_FAILURE_REFUSED, CalendarFailure::CALENDAR_FAILURE_AGAIN, CalendarFailure::CALENDAR_FAILURE_NOT_LINKED, CalendarFailure::CALENDAR_FAILURE_NONE] {
@@ -1070,7 +1131,7 @@ mod tests {
         agenda.can_change = true;
         c.set(agenda, "UTC", true, at("2026-11-10T08:01:00Z"));
         assert!(!c.event.is_open());
-        c.event.answered(&answer("delete", "mine_20261110T090000Z", None));
+        c.event.answered(&answer("delete", "mine_20261110T090000Z", None), Instant::now());
         assert!(c.event.pending.is_none() && !c.event.is_open());
     }
 
@@ -1084,8 +1145,12 @@ mod tests {
         assert_eq!(c.event.step, EventStep::Details, "no code without a meeting link");
     }
 
+    /// The tests that make the event's QR picture: one at a time (the picture's key is global).
+    static EVENT_QR_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn join_and_directions_show_a_code_for_the_phone() {
+        let _one = EVENT_QR_TESTS.lock().unwrap_or_else(|e| e.into_inner());
         let mut e = event("meet", "2026-11-10T09:00:00Z", 30);
         e.meeting_url = "https://meet.google.com/abc-defg-hij".to_string();
         e.location = "Main Street 12".to_string();
@@ -1127,10 +1192,10 @@ mod tests {
         let command = press(&mut c, "#event/confirm").expect("a command");
         assert!(command.has_disconnect());
         // Google could not be reached: the calendar stays linked, and the panel says so
-        c.event.answered(&answer("disconnect", "", Some(CalendarFailure::CALENDAR_FAILURE_AGAIN)));
+        c.event.answered(&answer("disconnect", "", Some(CalendarFailure::CALENDAR_FAILURE_AGAIN)), Instant::now());
         assert!(c.event.is_open() && c.event.error.contains("stays linked"));
         press(&mut c, "#event/confirm").expect("again");
-        c.event.answered(&answer("disconnect", "", None));
+        c.event.answered(&answer("disconnect", "", None), Instant::now());
         assert!(!c.event.is_open());
         // with write access the link says what that means
         let mut agenda = linked(vec![]);
@@ -1142,5 +1207,105 @@ mod tests {
         // unlinked meanwhile (the agenda says so): the link's step closes
         c.set(unlinked("http://10.0.0.2:8765/setup?t=two"), "UTC", true, at("2026-11-10T08:02:00Z"));
         assert!(!c.event.is_open());
+    }
+
+    /// Two events of the same day, the account may delete both and answer neither.
+    fn two_of_mine() -> AgendaCard {
+        let mine = |id: &str, start: &str| {
+            let mut e = event(id, start, 30);
+            e.can_delete = true;
+            e
+        };
+        let mut c = card();
+        let mut agenda = linked(vec![mine("a", "2026-11-10T09:00:00Z"), mine("b", "2026-11-10T10:00:00Z")]);
+        agenda.can_change = true;
+        c.set(agenda, "UTC", true, at("2026-11-10T08:00:00Z"));
+        c
+    }
+
+    fn tap_row(c: &mut AgendaCard, row: usize) {
+        let t = Instant::now();
+        c.on_list(Some(row), Gesture::down(0.0, 10.0), t);
+        c.on_list(Some(row), Gesture::up(0.0, 10.0), t);
+    }
+
+    #[test]
+    fn a_late_answer_closes_only_the_panel_it_belongs_to() {
+        let mut c = two_of_mine();
+        tap_row(&mut c, 1);
+        assert_eq!(c.event.id.as_deref(), Some("a"));
+        press(&mut c, "#event/delete");
+        press(&mut c, "#event/confirm").expect("a command");
+        // the owner closes the panel and opens the other event while the deletion runs
+        c.event.close();
+        tap_row(&mut c, 2);
+        assert_eq!(c.event.id.as_deref(), Some("b"));
+        assert_eq!(c.event.status_line(), OTHER_CHANGE, "its controls are off, and the line says why");
+        assert!(!c.event.delete.press.enabled);
+        // a's deletion fails: b's panel shows no error of a, and its controls come back
+        c.event.answered(&answer("delete", "a", Some(CalendarFailure::CALENDAR_FAILURE_AGAIN)), Instant::now());
+        assert!(c.event.is_open() && c.event.error.is_empty() && c.event.delete.press.enabled && c.event.status_line().is_empty());
+        // again, and this time it goes through: b's panel stays open
+        c.event.close();
+        tap_row(&mut c, 1);
+        press(&mut c, "#event/delete");
+        press(&mut c, "#event/confirm").expect("a command");
+        c.event.close();
+        tap_row(&mut c, 2);
+        c.event.answered(&answer("delete", "a", None), Instant::now());
+        assert!(c.event.is_open() && c.event.id.as_deref() == Some("b"));
+        // an unlink's answer closes only the calendar's link, not an event's panel
+        c.on_account(Gesture::DOWN);
+        c.on_account(Gesture::UP);
+        press(&mut c, "#event/disconnect");
+        press(&mut c, "#event/confirm").expect("a command");
+        c.event.close();
+        tap_row(&mut c, 2);
+        c.event.answered(&answer("disconnect", "", None), Instant::now());
+        assert!(c.event.is_open() && c.event.id.as_deref() == Some("b"));
+    }
+
+    #[test]
+    fn an_answer_that_went_through_stays_lit_until_the_agenda_has_it() {
+        let mut c = opened(invitation());
+        press(&mut c, "#event/rsvp/#segmented/segment-1").expect("a command");
+        // the read after the change failed: the answer comes, the agenda is the old one
+        let t = Instant::now();
+        c.event.answered(&answer("respond", "inv_20261110T090000Z", None), t);
+        assert_eq!(c.event.rsvp.chosen(), Some(0), "Accept stays lit, not the old 'not answered'");
+        let mut agenda = linked(vec![invitation()]);
+        agenda.can_change = true;
+        c.set(agenda.clone(), "UTC", true, at("2026-11-10T08:01:00Z"));
+        assert_eq!(c.event.rsvp.chosen(), Some(0), "an agenda without it yet changes nothing");
+        // no agenda with it for a read interval and a half: the agenda's answer again
+        c.event.follow(true, t + KEEP_ANSWER + Duration::from_secs(1));
+        assert_eq!(c.event.rsvp.chosen(), None);
+        // the next time the agenda has it: it is the account's answer
+        press(&mut c, "#event/rsvp/#segmented/segment-3").expect("a command");
+        c.event.answered(&answer("respond", "inv_20261110T090000Z", None), t);
+        let mut e = invitation();
+        e.response = Rsvp::RSVP_DECLINED.into();
+        agenda.events = vec![e];
+        c.set(agenda, "UTC", true, at("2026-11-10T08:02:00Z"));
+        c.event.follow(true, t + KEEP_ANSWER + Duration::from_secs(1));
+        assert_eq!(c.event.rsvp.chosen(), Some(2));
+    }
+
+    #[test]
+    fn the_code_says_which_host_the_phone_opens() {
+        let _one = EVENT_QR_TESTS.lock().unwrap_or_else(|e| e.into_inner());
+        let mut e = event("meet", "2026-11-10T09:00:00Z", 30);
+        e.meeting_url = "https://meet.google.com/abc-defg-hij?pwd=1".to_string();
+        let mut c = opened(e);
+        press(&mut c, "#event/join");
+        assert_eq!((c.event.step, c.event.qr_host.as_str()), (EventStep::Qr, "meet.google.com"));
+        // a link whose host is not plain letters gets no code (it stays text in the details)
+        let mut e = event("odd", "2026-11-10T09:00:00Z", 30);
+        e.meeting_url = "https://gооgle.com/meet".to_string();
+        let mut d = opened(e);
+        press(&mut d, "#event/join");
+        assert_eq!(d.event.step, EventStep::Details);
+        assert!(d.event.qr_picture().is_none());
+        c.event.close();
     }
 }

@@ -163,9 +163,10 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         (model.event_join, model.event_join_display) = (slot("#event/join", &event.join), gone(offers.join.is_some()));
         (model.event_directions, model.event_directions_display) = (slot("#event/directions", &event.directions), gone(offers.directions.is_some()));
         (model.event_delete, model.event_delete_display) = (slot("#event/delete", &event.delete), gone(offers.delete));
-        (model.event_status, model.event_status_display) = (event.status.clone(), shown(&event.status));
+        (model.event_status, model.event_status_display) = (event.status_line().to_string(), shown(event.status_line()));
         (model.event_error, model.event_error_display) = (event.error.clone(), shown(&event.error));
         model.event_qr_title = event.qr_title.clone();
+        model.event_qr_host = format!("Opens {}", event.qr_host);
         model.event_qr = event.qr_picture();
         model.event_back = slot("#event/back", &event.back);
         let (question, line) = event.confirm_texts();

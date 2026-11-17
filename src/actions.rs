@@ -96,7 +96,7 @@ impl StateAction<State, ()> for HomeAction {
                 follow_devices(&mut state.dash, &mut state.matter_pending, &reported);
             }
             HomeAction::MatterResult(result) => on_matter_result(&mut state.matter_pending, &state.devices, result),
-            HomeAction::CalendarResult(answer) => state.agenda.event.answered(answer),
+            HomeAction::CalendarResult(answer) => state.agenda.event.answered(answer, Instant::now()),
             #[cfg(browser)]
             HomeAction::Gesture(node, gesture) if state.panel.is_open() => {
                 // the panel while it is open: a tap on the scrim or on close closes it, the card
