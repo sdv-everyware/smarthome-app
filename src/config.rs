@@ -77,14 +77,17 @@ pub fn wayland_zones() -> bool {
 }
 
 /// The property by which the product turns the panel's browser on. The browser is experimental
-/// and off by default; everyware's product/everyware.mk sets it with
-/// EVERYWARE_EXPERIMENTAL_BROWSER=true.
+/// and off by default; everyware's product/everyware.mk sets it with EVERYWARE_BROWSER=true,
+/// which also builds the panel with its browser code (the cfg browser).
+#[cfg(browser)]
 pub const BROWSER_PROPERTY: &str = "ro.vendor.everyware.browser";
 
+#[cfg(browser)]
 static BROWSER: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// Whether the image has the panel's browser: a tap on a story opens its page, and an ordinary
-/// Wayland window shows in the panel. Read once.
+/// Whether the image has the panel's browser: an ordinary Wayland window shows in the panel. Read
+/// once.
+#[cfg(browser)]
 pub fn browser() -> bool {
     *BROWSER.get_or_init(|| crate::state::property(BROWSER_PROPERTY) == "true")
 }

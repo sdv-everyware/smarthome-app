@@ -2,9 +2,9 @@
  * smarthome-app: the link to the house's data, over binder. The dashboard bundle
  * (vendor/sdv-everyware/everyware/bundles/dashboard) subscribes to the house's topics and calls
  * com.everyware.screen.IScreenLink/default (vendor/sdv-everyware/everyware/interfaces/screen): it
- * pushes the weather, the news, the Wi-Fi networks and state, the Matter devices, the device's
+ * pushes the weather, the agenda, the Wi-Fi networks and state, the Matter devices, the device's
  * settings and the answers to the screen's commands, and hands in the sink the screen's commands
- * go to. The commands carry
+ * go to (the news too: the panel shows none and drops it). The commands carry
  * the password typed on the screen, so the server takes a call only from the dashboard bundle:
  * the kernel gives the caller's pid and uid with every call, and the SDV identity agent says
  * which service bundle that process is.
@@ -18,9 +18,9 @@ use binder::binder_impl::IBinderInternal;
 use binder::{BinderFeatures, DeathRecipient, ExceptionCode, IBinder, Interface, Status, StatusCode, Strong, ThreadState};
 use com_everyware_screen::aidl::com::everyware::screen::ICommandSink::ICommandSink;
 use com_everyware_screen::aidl::com::everyware::screen::IScreenLink::{BnScreenLink, IScreenLink};
+use everyware_catalog::calendar::Agenda;
 use everyware_catalog::matter::MatterDevices;
 use everyware_catalog::matter_service::{MatterCommand, MatterResult};
-use everyware_catalog::news::{NewsFeed, NewsThumbnail};
 use everyware_catalog::weather::Weather;
 use everyware_catalog::wifi::{WifiCommand, WifiNetworks, WifiState};
 use everyware_catalog::wifi_service::WifiResult;
@@ -189,15 +189,21 @@ impl IScreenLink for ScreenLink {
         Ok(())
     }
 
-    fn publishNews(&self, news: &[u8]) -> binder::Result<()> {
+    // The agenda has the news' place on the screen: the feed and its thumbnails are taken from
+    // the bundle (it sends them to every panel) and dropped.
+    fn publishNews(&self, _news: &[u8]) -> binder::Result<()> {
         self.check_caller()?;
-        self.act(HomeAction::News(parse::<NewsFeed>(news, "NewsFeed")?));
         Ok(())
     }
 
-    fn publishNewsThumbnail(&self, thumbnail: &[u8]) -> binder::Result<()> {
+    fn publishNewsThumbnail(&self, _thumbnail: &[u8]) -> binder::Result<()> {
         self.check_caller()?;
-        self.act(HomeAction::NewsThumbnail(parse::<NewsThumbnail>(thumbnail, "NewsThumbnail")?));
+        Ok(())
+    }
+
+    fn publishAgenda(&self, agenda: &[u8]) -> binder::Result<()> {
+        self.check_caller()?;
+        self.act(HomeAction::Agenda(parse::<Agenda>(agenda, "Agenda")?));
         Ok(())
     }
 

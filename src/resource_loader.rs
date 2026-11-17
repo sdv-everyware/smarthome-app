@@ -29,7 +29,7 @@ pub struct ResourceManager;
 
 impl RendererHelper for ResourceManager {
     fn initialize_renderer(&self, renderer: &mut dyn Renderer) -> Result<(), Error> {
-        // the pictures components show (everyware_ui::images: the news feed's)
+        // the pictures components show (everyware_ui::images: the agenda's QR code, the bars' colours)
         renderer.replace_raw_image_storage(everyware_ui::images::storage());
         for (family, weight, data) in FONTS {
             // SAFETY: OpenType fonts are supported by the renderer.

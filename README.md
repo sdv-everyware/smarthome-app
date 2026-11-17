@@ -1,10 +1,10 @@
 # smarthome-app
 
 The smart home panel on harry (1920 x 1080): the time and the weather, the rooms as tiles (the
-lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the news, and
-the Wi-Fi settings in a sheet. It is written against the EveryWare UI library
-(`vendor/sdv-everyware/ui-lib`); the house's data comes from the dashboard bundle over gRPC
-(`src/house_link.rs`). How the app is built, step by step: [`docs/harry-app-anatomy.md`](docs/harry-app-anatomy.md).
+lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the agenda (a
+tap on an event shows its details at the right), and the Wi-Fi settings and the settings in
+sheets. It is written against the EveryWare UI library (`vendor/sdv-everyware/ui-lib`); the
+house's data comes from the dashboard bundle over binder (`src/screen_binder.rs`). How the app is built, step by step: [`docs/harry-app-anatomy.md`](docs/harry-app-anatomy.md).
 
 ## The design
 
@@ -29,7 +29,7 @@ reboot. The key in `apex/keys/` is a test key of this public repository, as AOSP
 are: a product signs its APEX with a key of its own, never with this one.
 
 Options: `--wayland-zones` serves Wayland clients and shows them in the zones of the design (the
-camera tile, the browser panel when the image has the experimental browser) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
+camera tile; the browser panel only in a build with the experimental browser, `EVERYWARE_BROWSER=true`, which nothing on the dashboard opens) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
 frame rate; `--zone-plane` puts a client on a display plane of its own (a board whose display
 has no planes for that, such as Cuttlefish, turns it off with `ro.vendor.everyware.zone_plane=false`;
 the dashboard then draws the zone, still only on a new client frame); `--zone-redraw

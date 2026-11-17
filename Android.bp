@@ -9,8 +9,29 @@ package {
     default_applicable_licenses: ["Android-Apache-2.0"],
 }
 
+// The panel's browser (src/browser.rs, its zone and its panel) is experimental and built only
+// with everyware's EVERYWARE_BROWSER=true (product/everyware.mk sets Soong's everyware browser):
+// the cfg browser. Without it the panel has no browser code.
+soong_config_module_type {
+    name: "smarthome_app_browser_rust_defaults",
+    module_type: "rust_defaults",
+    config_namespace: "everyware",
+    bool_variables: ["browser"],
+    properties: ["cfgs"],
+}
+
+smarthome_app_browser_rust_defaults {
+    name: "smarthome_app_browser_defaults",
+    soong_config_variables: {
+        browser: {
+            cfgs: ["browser"],
+        },
+    },
+}
+
 rust_binary {
     name: "smarthome_app",
+    defaults: ["smarthome_app_browser_defaults"],
     crate_root: "src/main.rs",
     srcs: [
         "data/*.otf",
@@ -34,8 +55,15 @@ rust_binary {
         // localtime_r: the local time in the system's time zone (clock.rs)
         "liblibc",
         "liblog_rust",
-        // UI components: vendor/sdv-everyware/ui-lib
+        // UI components: vendor/sdv-everyware/ui-lib; the core alone for the modules the host
+        // test builds too (agenda.rs)
         "libeveryware_ui",
+        "libeveryware_ui_core",
+        // the QR code of the calendar's setup page (agenda.rs)
+        "libqrcodegen_no_heap-rsm",
+        // text measured as harry lays it out (text_measure.rs)
+        "libdisplay_list",
+        "libsquoosh",
         // the house's data from the dashboard bundle over binder (screen_binder.rs): the
         // catalog's messages, the interface, and the SDV identity agent that names the caller
         "libprotobuf",
@@ -70,14 +98,20 @@ rust_binary {
 }
 
 // The tests of the app's modules that need no device (src/host_tests.rs: the time zone list, the
-// zone planes), on the host: m smarthome_app_host_test, then
+// zone planes, the agenda and its card), on the host: m smarthome_app_host_test, then
 // out_rb3/host/linux-x86/nativetest64/smarthome_app_host_test/.
 rust_test_host {
     name: "smarthome_app_host_test",
     crate_root: "src/host_tests.rs",
     rustlibs: [
+        "libcustomizations",
+        "libeveryware_catalog",
+        "libeveryware_ui",
+        "libeveryware_ui_core",
         "libjiff",
         "liblog_rust",
+        "libprotobuf",
+        "libqrcodegen_no_heap-rsm",
     ],
     test_options: {
         unit_test: true,

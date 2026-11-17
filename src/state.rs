@@ -19,6 +19,7 @@ use user_preferences_api::setting::Setting;
 use user_preferences_api::settings_group::SettingsGroupId;
 use user_preferences_api::user_preferences_management_service::RequestSettingsChangeRequest;
 use everyware_ui::segmented::Segmented;
+#[cfg(browser)]
 use everyware_ui::skeleton::{Skeleton, SkeletonKind, SkeletonSize};
 use everyware_ui::screens::{Effect, Pages};
 use everyware_ui::slider::Slider;
@@ -42,14 +43,17 @@ pub struct State {
     /// The sheet of a device (#device), opened from its tile's header.
     pub device: DeviceSheet,
     /// The panel (#panel, an instance of the library's #sheet): the browser with a title bar,
-    /// opened by a news story. Its layout is PANEL_LAYOUT (State::new).
+    /// built with the cfg browser. Nothing on the dashboard opens it. Its layout is PANEL_LAYOUT
+    /// (State::new).
+    #[cfg(browser)]
     pub panel: Sheet,
     /// The settings (#prefs, the library's #sheet at the right edge), opened by Settings.
     pub prefs: PrefsSheet,
     /// What the panel's browser shows (browser.rs).
+    #[cfg(browser)]
     pub browser: BrowserPanel,
-    /// The pages of the news feed's stories, in the list's order (a tap opens one).
-    pub stories: Vec<crate::browser::Page>,
+    /// The agenda in the dashboard's right column (#agenda, agenda_card.rs) and its event panel.
+    pub agenda: crate::agenda_card::AgendaCard,
     /// The design's sizes (ui-lib design.rs): a dialog's card is as high as its content.
     pub sizes: Sizes,
     /// The outdoor weather from the weather bundle (screen_binder.rs); None until the first
@@ -72,8 +76,12 @@ impl State {
     pub fn new(sizes: Sizes) -> Self {
         let prefs = PrefsSheet { about: about(), timezone: system_time_zone(), ..Default::default() };
         let heights = ListHeights::of(&sizes);
-        let mut state = State { panel: Sheet::new(PANEL_LAYOUT), prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
-        state.dash.news = crate::news::empty(heights.news);
+        let mut state = State { prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
+        #[cfg(browser)]
+        {
+            state.panel = Sheet::new(PANEL_LAYOUT);
+        }
+        state.agenda = crate::agenda_card::AgendaCard::new(heights.agenda, heights.event_body, agenda_measure(), crate::zones::time_zone);
         state.prefs.build_zones(heights.zones);
         state
     }
@@ -84,8 +92,10 @@ impl State {
 /// code types no height. A slot the design lacks gives no height (a warning in the log).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ListHeights {
-    /// The news feed (#news/list, on the dashboard).
-    pub news: f32,
+    /// The agenda (#agenda/list, on the dashboard) and its event panel's body (#event/scroll, in
+    /// #event-content).
+    pub agenda: f32,
+    pub event_body: f32,
     /// The Wi-Fi networks (#wifi/networks, in #wifi-content step=networks).
     pub wifi: f32,
     /// The device sheet's two lists (#device/state-list, #device/info-list, in #device-content).
@@ -106,7 +116,8 @@ impl ListHeights {
             }
         };
         ListHeights {
-            news: height("#news/list", sizes.frame("#news/list")),
+            agenda: height("#agenda/list", sizes.frame("#agenda/list")),
+            event_body: height("#event/scroll", sizes.part("#event-content", "state=default", "#event/scroll")),
             wifi: height("#wifi/networks", sizes.part("#wifi-content", "step=networks", "#wifi/networks")),
             device_state: height("#device/state-list", sizes.part("#device-content", "state=default", "#device/state-list")),
             device_info: height("#device/info-list", sizes.part("#device-content", "state=default", "#device/info-list")),
@@ -126,8 +137,9 @@ pub const SCREEN: (f32, f32) = (1920.0, 1080.0);
 /// edge. The design has a variant for every layout.
 pub const WIFI_LAYOUT: Layout = Layout::Dialog;
 pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
+#[cfg(browser)]
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
-/// The settings' layout: a panel at the right edge, as the news panel.
+/// The settings' layout: a panel at the right edge, as the browser's panel.
 pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
 /// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
@@ -343,8 +355,6 @@ pub struct Dashboard {
     pub door_details: IconButton,
     pub settings: IconButton,
     pub talk: Button,
-    /// The right column: the news feed, a scrolling list (news.rs).
-    pub news: ListView,
 }
 
 /// The setpoint's range in °C.
@@ -369,7 +379,6 @@ impl Default for Dashboard {
             door_details: IconButton::new(IconButtonKind::Tonal, Icon::ChevronRight),
             settings: IconButton::new(IconButtonKind::Tonal, Icon::Settings),
             talk: Button::new(ButtonKind::Primary, "Talk").compact(),
-            news: crate::news::empty(0.0),
         }
     }
 }
@@ -677,6 +686,7 @@ impl DeviceSheet {
 /// The panel's browser: the page it was sent, whether it is still loading, and the title
 /// bar's close button (slot #panel/close). The page itself is Cog's (browser.rs); the app knows
 /// what it asked for and what Cog reported back (BrowserEvent).
+#[cfg(browser)]
 #[derive(Debug)]
 pub struct BrowserPanel {
     pub page: Option<crate::browser::Page>,
@@ -686,6 +696,7 @@ pub struct BrowserPanel {
     pub skeletons: [Skeleton; 4],
 }
 
+#[cfg(browser)]
 impl Default for BrowserPanel {
     fn default() -> Self {
         let wide = |kind| Skeleton::new(kind, SkeletonSize::Wide);
@@ -698,18 +709,11 @@ impl Default for BrowserPanel {
 }
 
 /// How long the loader waits for the page before it shows whatever the browser has.
+#[cfg(browser)]
 pub const PAGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+#[cfg(browser)]
 impl BrowserPanel {
-    /// A page was asked for: the loader shows and sweeps, the browser stays hidden.
-    pub fn loading(&mut self, page: crate::browser::Page, now: std::time::Instant) {
-        self.page = Some(page);
-        for s in &mut self.skeletons {
-            s.stop();
-            s.start(now);
-        }
-    }
-
     /// The page shows (Cog committed it, finished, failed, or the loader gave up): the loader
     /// fades out and the browser's zone comes in.
     pub fn shown(&mut self) {
@@ -736,6 +740,31 @@ impl BrowserPanel {
             None => String::new(),
         }
     }
+}
+
+/// How the agenda measures its texts on the device (text_measure.rs): a headline in its row (the
+/// list item's title of kind leading text, size column: Inter Medium 17/22, 342 wide), and the
+/// event panel's body (design/event-patch.js: the same sizes, widths and gap).
+pub fn agenda_measure() -> crate::agenda_card::Measure {
+    use crate::text_measure::{height, lines, Font};
+    const HEADLINE: Font = Font { family: "Inter", weight: 500.0, size: 17.0, line_height: 22.0 };
+    const HEADLINE_W: f32 = 490.0 - 20.0 - 128.0;
+    const CONTENT_W: f32 = 880.0;
+    const GAP: f32 = 16.0;
+    const TITLE: Font = Font { family: "Inter", weight: 600.0, size: 28.0, line_height: 36.0 };
+    const WHEN: Font = Font { family: "Inter", weight: 400.0, size: 19.0, line_height: 26.0 };
+    const LINK: Font = Font { family: "Inter", weight: 400.0, size: 17.0, line_height: 24.0 };
+    const TEXT: Font = Font { family: "Inter", weight: 400.0, size: 19.0, line_height: 28.0 };
+    fn headline_lines(title: &str) -> usize {
+        lines(title, &HEADLINE, HEADLINE_W)
+    }
+    fn body_height(d: &crate::agenda::Details) -> f32 {
+        let parts = [(&d.title, TITLE, CONTENT_W - 72.0 - 16.0), (&d.when, WHEN, CONTENT_W), (&d.place, WHEN, CONTENT_W), (&d.link, LINK, CONTENT_W), (&d.description, TEXT, CONTENT_W)];
+        // an empty part is out of the column (display gone), with its gap
+        let shown: Vec<f32> = parts.iter().filter(|(t, _, _)| !t.is_empty()).map(|(t, font, w)| height(t, font, *w)).collect();
+        shown.iter().sum::<f32>() + GAP * shown.len().saturating_sub(1) as f32
+    }
+    crate::agenda_card::Measure { headline_lines, body_height }
 }
 
 /// The system's time zone (persist.sys.timezone; empty: bionic uses UTC).
