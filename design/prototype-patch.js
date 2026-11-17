@@ -181,48 +181,61 @@ module.exports = function patch(msg, helpers) {
   onTap(hotspot(prefs.overlay, prefsContent, '#prefs/close', 'close'), close());
   // the panel's browser: close at the title bar (nothing on the dashboard opens it)
   onTap(hotspot(panel.overlay, panelContent, '#panel/close', 'close'), close());
-  // an agenda event's details (event-patch.js), from a tap on the agenda's list; close at the top
-  const eventContent = variantOf('#event-content', 'step=details');
-  const eventPanel = sheetOverlay('Event · right', 'right', eventContent);
+  // an agenda event's panel (event-patch.js): one content with its steps as pages side by side;
+  // the content shows the first one (the others are clipped beside it until the app slides
+  // them). A step's overlay hides the first page and lays a copy of its own page over that
+  // place; `edit` changes the copy (another confirmation's words). Close is the content's, above
+  // every page.
+  const eventContent = variantOf('#event-content', 'state=default');
+  const detailsPage = under(eventContent, '#event/page-details');
+  const eventStep = (title, page, edit) => {
+    if (page === '#event/page-details') return sheetOverlay(title, 'right', eventContent);
+    const step = sheetOverlay(title, 'right', eventContent, [{ guidPath: { guids: [detailsPage.guid] }, visible: false }]);
+    A.copyNode(under(eventContent, page), step.overlay, PAD, PAD, edit);
+    return step;
+  };
+  // the details, from a tap on the agenda's list
+  const eventPanel = eventStep('Event · right', '#event/page-details');
   const agendaList = nodes.find(n => n.name === '#agenda/list');
   if (!agendaList) throw new Error('#agenda/list not found: run dashboard-patch.js first');
   onTap(agendaList, openPanel(eventPanel.overlay));
-  onTap(hotspot(eventPanel.overlay, eventContent, '#event/close', 'close'), close());
-  // its other steps: the QR code for the phone, the confirmation of a deletion
-  const eventQr = variantOf('#event-content', 'step=qr');
-  const qrPanel = sheetOverlay('Event · QR code', 'right', eventQr);
-  const eventConfirm = variantOf('#event-content', 'step=confirm');
-  const confirmPanel = sheetOverlay('Event · delete?', 'right', eventConfirm);
+  // the other steps: the QR code for the phone, the confirmation of a deletion
+  const qrPanel = eventStep('Event · QR code', '#event/page-qr');
+  const confirmPanel = eventStep('Event · delete?', '#event/page-confirm');
   // Join and Directions sit in the row #event/actions (its place is their offset)
   const actions = under(eventContent, '#event/actions');
   const inRow = (name, label) => hotspot(eventPanel.overlay, eventContent, name, label, actions.transform.m02, actions.transform.m12);
   onTap(inRow('#event/join', 'Join on phone'), swapOverlay(qrPanel.overlay));
   onTap(inRow('#event/directions', 'Directions'), swapOverlay(qrPanel.overlay));
   onTap(hotspot(eventPanel.overlay, eventContent, '#event/delete', 'Delete'), swapOverlay(confirmPanel.overlay));
-  onTap(hotspot(qrPanel.overlay, eventQr, '#event/back', 'Back'), swapOverlay(eventPanel.overlay));
-  onTap(hotspot(qrPanel.overlay, eventQr, '#event/close', 'close'), close());
-  onTap(hotspot(confirmPanel.overlay, eventConfirm, '#event/cancel', 'Cancel'), swapOverlay(eventPanel.overlay));
-  onTap(hotspot(confirmPanel.overlay, eventConfirm, '#event/confirm', 'Delete'), close());
-  onTap(hotspot(confirmPanel.overlay, eventConfirm, '#event/close', 'close'), close());
+  onTap(hotspot(qrPanel.overlay, eventContent, '#event/back', 'Back'), swapOverlay(eventPanel.overlay));
+  onTap(hotspot(confirmPanel.overlay, eventContent, '#event/cancel', 'Cancel'), swapOverlay(eventPanel.overlay));
+  onTap(hotspot(confirmPanel.overlay, eventContent, '#event/confirm', 'Delete'), close());
   // the calendar's link, from the agenda's header button, and the confirmation of a disconnect
-  // (the confirmation step with the disconnect's texts)
-  const eventCalendar = variantOf('#event-content', 'step=calendar');
-  const calendarPanel = sheetOverlay('Calendar · right', 'right', eventCalendar);
-  // the confirmation's button is the error tone's (event-patch.js): its label is that variant's
-  const buttonLabel = under(variantOf('#button', 'kind=primary-error, state=default, size=regular'), '#button/label');
-  const disconnectPanel = sheetOverlay('Calendar · disconnect?', 'right', eventConfirm, [
-    textAt(under(eventConfirm, '#event/confirm-title'), 'Disconnect the calendar?'),
-    textAt(under(eventConfirm, '#event/confirm-text'), 'The panel ends its access to the Google account and forgets it. The agenda stays empty until a calendar is linked again.'),
-    { guidPath: { guids: [under(eventConfirm, '#event/confirm/preview').guid, buttonLabel.guid] }, textData: { characters: 'Disconnect', lines: buttonLabel.textData.lines } },
-  ]);
+  // (the confirmation's page with the disconnect's words; its button is the error tone's)
+  const calendarPanel = eventStep('Calendar · right', '#event/page-calendar');
+  const words = {
+    '#event/confirm-title': 'Disconnect the calendar?',
+    '#event/confirm-text': 'The panel ends its access to the Google account and forgets it. The agenda stays empty until a calendar is linked again.',
+  };
+  const disconnectPanel = eventStep('Calendar · disconnect?', '#event/page-confirm', n => {
+    if (n.type === 'TEXT' && words[n.name]) n.textData = { ...n.textData, characters: words[n.name] };
+    // the button's label is an override of its preview (event-patch.js slotted)
+    if (n.name === '#event/confirm/preview') {
+      n.symbolData.symbolOverrides = n.symbolData.symbolOverrides.map(o => o.textData ? { ...o, textData: { ...o.textData, characters: 'Disconnect' } } : o);
+    }
+  });
   const account = nodes.find(n => n.name === '#agenda/account');
   if (!account) throw new Error('#agenda/account not found: run dashboard-patch.js first');
   onTap(account, openPanel(calendarPanel.overlay));
-  onTap(hotspot(calendarPanel.overlay, eventCalendar, '#event/close', 'close'), close());
-  onTap(hotspot(calendarPanel.overlay, eventCalendar, '#event/disconnect', 'Disconnect'), swapOverlay(disconnectPanel.overlay));
-  onTap(hotspot(calendarPanel.overlay, eventCalendar, '#event/change-access', 'Change access'), swapOverlay(disconnectPanel.overlay));
-  onTap(hotspot(disconnectPanel.overlay, eventConfirm, '#event/cancel', 'Cancel'), swapOverlay(calendarPanel.overlay));
-  onTap(hotspot(disconnectPanel.overlay, eventConfirm, '#event/confirm', 'Disconnect'), close());
+  onTap(hotspot(calendarPanel.overlay, eventContent, '#event/disconnect', 'Disconnect'), swapOverlay(disconnectPanel.overlay));
+  onTap(hotspot(calendarPanel.overlay, eventContent, '#event/change-access', 'Change access'), swapOverlay(disconnectPanel.overlay));
+  onTap(hotspot(disconnectPanel.overlay, eventContent, '#event/cancel', 'Cancel'), swapOverlay(calendarPanel.overlay));
+  onTap(hotspot(disconnectPanel.overlay, eventContent, '#event/confirm', 'Disconnect'), close());
+  // close at the top of every step: the hotspot after the copies, so it is above them
+  for (const step of [eventPanel, qrPanel, confirmPanel, calendarPanel, disconnectPanel]) {
+    onTap(hotspot(step.overlay, eventContent, '#event/close', 'close'), close());
+  }
   // the game (game-patch.js), a dialog from the status row's game button; close at the title bar
   const gameContent = variantOf('#game-content', 'state=default');
   const game = sheetOverlay('Game · dialog', 'dialog', gameContent);

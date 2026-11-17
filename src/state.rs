@@ -98,8 +98,8 @@ impl State {
 /// code types no height. A slot the design lacks gives no height (a warning in the log).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ListHeights {
-    /// The agenda (#agenda/list, on the dashboard) and its event panel's body (#event/scroll, in
-    /// #event-content).
+    /// The agenda (#agenda/list, on the dashboard) and its event panel's body (#event/scroll, on
+    /// the page #event/page-details of #event-content).
     pub agenda: f32,
     pub event_body: f32,
     /// The Wi-Fi networks (#wifi/networks, in #wifi-content step=networks).
@@ -123,7 +123,7 @@ impl ListHeights {
         };
         ListHeights {
             agenda: height("#agenda/list", sizes.frame("#agenda/list")),
-            event_body: height("#event/scroll", sizes.part("#event-content", "step=details", "#event/scroll")),
+            event_body: height("#event/scroll", sizes.part("#event-content", "state=default", "#event/scroll")),
             wifi: height("#wifi/networks", sizes.part("#wifi-content", "step=networks", "#wifi/networks")),
             device_state: height("#device/state-list", sizes.part("#device-content", "state=default", "#device/state-list")),
             device_info: height("#device/info-list", sizes.part("#device-content", "state=default", "#device/info-list")),

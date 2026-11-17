@@ -17,10 +17,13 @@
 // opens it on the calendar's link (the app, agenda_card.rs).
 //
 // Adds:
-// - #event-content in the Library: the content, the size of the right panel's content area, in
-//   four steps (the property step; the app switches the variant of #event/content):
-//   - details: #event/close (a tonal icon button) at the top right, and #event/scroll, a frame
-//     that clips, with #event/body in it: a column (auto layout, 16 between the parts) of texts
+// - #event-content in the Library: the content, the size of the right panel's content area:
+//   #event/close (a tonal icon button) at the top right, above four pages side by side in a
+//   frame that clips them (the panel's steps, ui-lib screens.rs Pages: the app slides them,
+//   agenda_card.rs EventStep). The order is the steps': the confirmation last, as both the
+//   details and the calendar's link go forward to it. Every page is drawn at full opacity:
+//   harry takes no taps on what the design draws transparent; the app hides the others.
+//   - #event/page-details: #event/scroll, a frame that clips, with #event/body in it: a column (auto layout, 16 between the parts) of texts
 //     that grow with their content: #event/title (the whole title, beside the close button),
 //     #event/when (the day and the time), #event/place, #event/rsvp (the library's #segmented:
 //     Accept, Maybe, Decline), #event/link (the meeting's address, as text) and
@@ -29,16 +32,17 @@
 //     finger scrolls it (agenda_card.rs EventPanel; state.rs has the same numbers as here). At
 //     the bottom #event/actions, a row that closes up, with #event/join and #event/directions
 //     (secondary buttons), and #event/delete at the right.
-//   - qr: #event/qr-title, #event/qr (a plain frame: the app draws the QR code on it), "Scan with
+//   - #event/page-qr: #event/qr-title, #event/qr (a plain frame: the app draws the QR code on it), "Scan with
 //     your phone", #event/qr-host (the host the phone will open), #event/back.
-//   - confirm: #event/confirm-title, #event/confirm-text, #event/cancel and #event/confirm (its
-//     label the app's).
-//   - calendar: "Google Calendar", #event/access (the access in words, the app's), what the two
-//     actions do, #event/change-access and #event/disconnect.
-//   Every step has #event/close and, above its buttons, #event/lines: #event/status (what the
-//   panel waits for) and #event/error (why a change failed), each out of the column when empty.
+//   - #event/page-calendar: "Google Calendar", #event/access (the access in words, the app's),
+//     what the two actions do, #event/change-access and #event/disconnect.
+//   - #event/page-confirm: #event/confirm-title, #event/confirm-text, #event/cancel and
+//     #event/confirm (its label the app's).
+//   Every page but the QR code's has, above its buttons, #event/lines: #event/status (what the
+//   panel waits for) and #event/error (why a change failed), each out of the column when empty
+//   (the same names: the app sets them once for all).
 // - #event over #smarthome-root: #sheet layout=right, state=closed, in a plain absolute frame,
-//   its content swapped for #event-content step=details and its parts named #event/scrim, /card,
+//   its content swapped for #event-content state=default and its parts named #event/scrim, /card,
 //   /content (fig-helpers.js sheetInstance). The app keeps it closed and moves the card itself.
 
 let { key, authoring, C, FONT } = {};
@@ -64,7 +68,8 @@ const BTN_W = 200, BTN_H = 56, BTN_GAP = 16, LINE_H = 26, ROW_Y = CONTENT_H - BT
 const SCROLL_H = LINES_Y - GAP;
 // the QR code: square, the app makes its picture this size (agenda_card.rs EVENT_QR_SIDE)
 const QR = 480, QR_Y = 110;
-const STEPS = ['details', 'qr', 'confirm', 'calendar'];
+// the pages in the order the app slides them (agenda_card.rs EventStep)
+const PAGES = ['details', 'qr', 'calendar', 'confirm'];
 // a rough height for the preview: about half an em a character
 const previewH = (text, w, size, lh) => text.split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length * size * 0.55 / w)), 0) * lh;
 
@@ -114,9 +119,27 @@ module.exports = function patch(msg, helpers) {
   };
 
   const y0 = lib.size.y + 80;
-  const content = A.componentSet(lib, '#event-content', 80, y0, [['step', STEPS]], CONTENT_W, CONTENT_H, 48, 0, (s, v) => {
-    const box = A.hugBox(s, CONTENT_W, CONTENT_H);
-    if (v.step === 'details') {
+  const content = A.componentSet(lib, '#event-content', 80, y0, [['state', ['default']]], CONTENT_W, CONTENT_H, 0, 0, (s) => {
+    const content = A.hugBox(s, CONTENT_W, CONTENT_H);
+    // the frame that clips the pages, at x 0 of the content: the app reads the first page's
+    // place from it (Sizes::part)
+    const pages = frame(content, 'Pages', 0, 0, CONTENT_W, CONTENT_H, { frameMaskDisabled: false });
+    PAGES.forEach((p, i) => drawPage(frame(pages, `#event/page-${p}`, i * CONTENT_W, 0, CONTENT_W, CONTENT_H), p));
+    // close, above every page
+    const slot = frame(content, '#event/close', CONTENT_W - close.size.x + 12, -16, close.size.x, close.size.y);
+    A.instance(slot, '#event/close/preview', 0, 0, close);
+  }, { rows: true });
+  lib.size = { x: lib.size.x, y: y0 + content.set.size.y + 80 };
+
+  const layer = frame(root, 'Event layer', 0, 0, SCREEN_W, SCREEN_H, { stackPositioning: 'ABSOLUTE' });
+  A.sheetInstance(layer, '#event', 0, 0, closedRight, content.symbols['state=default']);
+
+  log(`added ${A.count()} nodes: #event-content (${PAGES.length} pages) in the Library, #event (#sheet right, closed, content swapped) over ${ROOT}`);
+  return msg;
+
+  // one page: its parts at their places in the page
+  function drawPage(box, page) {
+    if (page === 'details') {
       // the place the body scrolls in: it clips; the close button stays above it
       const scroll = frame(box, '#event/scroll', 0, 0, CONTENT_W, SCROLL_H, { frameMaskDisabled: false });
       const heights = PARTS.map(([, w, size, lh, , , t]) => t ? previewH(t, w, size, lh) : segmented.size.y);
@@ -153,7 +176,7 @@ module.exports = function patch(msg, helpers) {
       slotted(actions, '#event/join', 0, 0, secondary, 'Join on phone');
       slotted(actions, '#event/directions', BTN_W + BTN_GAP, 0, secondary, 'Directions');
       slotted(box, '#event/delete', CONTENT_W - BTN_W, ROW_Y, danger, 'Delete');
-    } else if (v.step === 'qr') {
+    } else if (page === 'qr') {
       text(box, '#event/qr-title', 0, 0, TITLE_W, 36, 'Join on phone', 28, 'semibold', 'ink');
       // a plain frame: harry draws a picture on a plain frame only
       frame(box, '#event/qr', (CONTENT_W - QR) / 2, QR_Y, QR, QR, { fillPaints: [A.solid(C.line)] });
@@ -161,7 +184,7 @@ module.exports = function patch(msg, helpers) {
       // the host the phone will open: who sent the link, the reader decides
       A.text(box, '#event/qr-host', 0, QR_Y + QR + 24 + 28 + 8, CONTENT_W, 26, 'Opens meet.google.com', 17, FONT.medium, C.ink, 'CENTER', 'TOP', { maxLines: 1, textTruncation: 'ENDING' });
       slotted(box, '#event/back', 0, ROW_Y, secondary, 'Back');
-    } else if (v.step === 'confirm') {
+    } else if (page === 'confirm') {
       text(box, '#event/confirm-title', 0, 0, TITLE_W, 36, 'Delete this event?', 28, 'semibold', 'ink');
       text(box, '#event/confirm-text', 0, 60, CONTENT_W, 84, 'Only this occurrence.', 19, 'regular', 'ink');
       lines(box, 'Deleting the event…', 'Google could not be reached. Try again.');
@@ -177,14 +200,5 @@ module.exports = function patch(msg, helpers) {
       slotted(box, '#event/change-access', 0, ROW_Y, secondary, 'Change access');
       slotted(box, '#event/disconnect', BTN_W + BTN_GAP, ROW_Y, secondary, 'Disconnect');
     }
-    const slot = frame(box, '#event/close', CONTENT_W - close.size.x + 12, -16, close.size.x, close.size.y);
-    A.instance(slot, '#event/close/preview', 0, 0, close);
-  }, { rows: true });
-  lib.size = { x: lib.size.x, y: y0 + content.set.size.y + 80 };
-
-  const layer = frame(root, 'Event layer', 0, 0, SCREEN_W, SCREEN_H, { stackPositioning: 'ABSOLUTE' });
-  A.sheetInstance(layer, '#event', 0, 0, closedRight, content.symbols['step=details']);
-
-  log(`added ${A.count()} nodes: #event-content (${STEPS.length} steps) in the Library, #event (#sheet right, closed, content swapped) over ${ROOT}`);
-  return msg;
+  }
 };

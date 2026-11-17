@@ -24,12 +24,13 @@
 //!   has the event; while it is open, a new agenda brings the event's new details. Its body
 //!   scrolls (a list of one row as high as the body: Android's drag and fling; ui-lib's `Scrolled`
 //!   draws it on the fling's curve, so a finger that catches a fling stops it where it shows).
-//! - The panel's steps (`EventStep`): the details with Accept, Maybe and Decline when the
-//!   account may answer, Join on phone and Directions (a QR code each, for the phone to open:
-//!   the panel opens nothing) and Delete when it may delete (after a confirmation); and the
-//!   calendar's link, from the header's button while a calendar is linked, with Change access and
-//!   Disconnect (each after a confirmation). A change is a command to the calendar bundle; the
-//!   panel waits for its answer with its controls off and says why it failed.
+//! - The panel's steps (`EventStep`, pages that slide: ui-lib Pages): the details with Accept,
+//!   Maybe and Decline when the account may answer, Join on phone and Directions (a QR code
+//!   each, for the phone to open: the panel opens nothing) and Delete when it may delete (after
+//!   a confirmation); and the calendar's link, from the header's button while a calendar is
+//!   linked, with Change access and Disconnect (each after a confirmation). A change is a
+//!   command to the calendar bundle; the panel waits for its answer with its controls off and
+//!   says why it failed.
 
 use crate::agenda::{self, Details, Offers, QR_KEY, QR_SIDE};
 use everyware_catalog::calendar::{Agenda, CalendarLink, Rsvp};
@@ -39,6 +40,7 @@ use everyware_ui::images;
 use everyware_ui::list_item::ListItem;
 use everyware_ui::list_view::{ListEvent, ListView};
 use everyware_ui::part_of;
+use everyware_ui::screens::{Effect, Pages};
 use everyware_ui::segmented::{Segmented, SegmentedEvent};
 use everyware_ui::tone::Tone;
 use everyware_ui::sheet::{Edge, Layout, Sheet};
@@ -84,7 +86,7 @@ pub struct AgendaCard {
 }
 
 /// The panel of an event (#event): the library's sheet with the app's content (#event-content),
-/// a step of it at a time (its variant, `EventStep`): the details with what the event offers, a
+/// a step of it at a time (its pages, `EventStep`): the details with what the event offers, a
 /// QR code for the phone, a confirmation, and the calendar's link (opened from the agenda's
 /// header, #agenda/account). A change goes to the calendar bundle as a command (`on` returns it,
 /// the caller sends it); until its answer (`answered`) the panel waits, its controls off.
@@ -101,7 +103,9 @@ pub struct EventPanel {
     pub body: ListView,
     /// How high the body's place is (the design's #event/scroll).
     view_h: f32,
-    pub step: EventStep,
+    /// Which step shows and which showed before (`EventStep`'s order): the pages slide
+    /// (`EVENT_EFFECT`).
+    pub pages: Pages,
     /// The details' controls: the answers, the codes for the phone, the deletion.
     pub rsvp: Segmented,
     pub join: Button,
@@ -139,27 +143,25 @@ pub struct EventPanel {
 /// Failures kept for panels not shown, at most.
 const MISSED: usize = 8;
 
-/// The steps of the event's panel: #event-content's variants.
+/// The steps of the event's panel: #event-content's pages in the design's order
+/// (#event/page-details, -qr, -calendar, -confirm). A higher step comes from the right: the
+/// confirmation is last, as both the details and the calendar's link go forward to it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum EventStep {
     #[default]
-    Details,
-    Qr,
-    Confirm,
-    Calendar,
+    Details = 0,
+    Qr = 1,
+    Calendar = 2,
+    Confirm = 3,
 }
 
-impl EventStep {
-    /// The content's variant.
-    pub fn variant(self) -> &'static str {
-        match self {
-            EventStep::Details => "step=details",
-            EventStep::Qr => "step=qr",
-            EventStep::Confirm => "step=confirm",
-            EventStep::Calendar => "step=calendar",
-        }
-    }
-}
+/// The steps by their page.
+pub const EVENT_STEPS: [EventStep; 4] = [EventStep::Details, EventStep::Qr, EventStep::Calendar, EventStep::Confirm];
+
+/// How the steps change: the next one slides in from the right, Back and Cancel slide it out
+/// (Material 3's shared axis X, as the settings' pages); a step over pages between them moves
+/// one width all the same.
+pub const EVENT_EFFECT: Effect = Effect::Slide;
 
 /// What the confirmation step confirms.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -219,7 +221,7 @@ impl EventPanel {
             offers: Offers::default(),
             body: ListView::new([], view_h, 0.0),
             view_h,
-            step: EventStep::Details,
+            pages: Pages::default(),
             rsvp: Segmented::new(RSVP.map(|(_, label, _)| label)).tones(RSVP.map(|(_, _, tone)| tone)),
             join: Button::new(ButtonKind::Secondary, "Join on phone"),
             directions: Button::new(ButtonKind::Secondary, "Directions"),
@@ -244,13 +246,13 @@ impl EventPanel {
     }
 
     /// Shows the event `id`: its details from the top of the body, `height` high, and what it
-    /// offers.
+    /// offers. The panel opens on them; nothing slides.
     fn show(&mut self, id: String, details: Details, offers: Offers, height: f32) {
         self.id = Some(id);
         self.details = details;
         self.body = ListView::new([ListItem::default()], self.view_h, height.max(0.0));
         self.offers = offers;
-        self.go(EventStep::Details);
+        self.pages.reset();
         let key = self.offers.id.clone();
         self.error = self.take_missed(&key);
         self.follow_answer();
@@ -265,7 +267,7 @@ impl EventPanel {
         }
         self.offers = offers;
         // an offer gone leaves its step (another device changed the event, say)
-        let gone = match self.step {
+        let gone = match self.step() {
             EventStep::Qr => self.qr_title == JOIN && self.offers.join.is_none() || self.qr_title == DIRECTIONS && self.offers.directions.is_none(),
             EventStep::Confirm => self.confirming == Some(Confirm::Delete) && !self.offers.delete && !self.waits_for("delete"),
             _ => false,
@@ -281,7 +283,7 @@ impl EventPanel {
     }
 
     /// The calendar's link (from the agenda's header): what Google granted, Change access and
-    /// Disconnect.
+    /// Disconnect. The panel opens on its page; nothing slides.
     pub fn open_calendar(&mut self, can_change: bool) {
         self.id = None;
         self.access = if can_change {
@@ -291,7 +293,7 @@ impl EventPanel {
         }
         .to_string();
         self.error = self.take_missed("");
-        self.go(EventStep::Calendar);
+        self.pages = Pages::at(EventStep::Calendar as usize);
         self.sheet.open();
     }
 
@@ -304,6 +306,11 @@ impl EventPanel {
     /// Whether it is open.
     pub fn is_open(&self) -> bool {
         self.sheet.is_open()
+    }
+
+    /// The step that shows.
+    pub fn step(&self) -> EventStep {
+        EVENT_STEPS.get(self.pages.selected).copied().unwrap_or_default()
     }
 
     /// A gesture on the body: a drag or a fling scrolls it.
@@ -322,7 +329,8 @@ impl EventPanel {
         }
         let waiting = self.pending.is_some();
         let tapped = |button: &mut Button| button.on(gesture) == Some(ButtonEvent::Clicked);
-        match (self.step, node) {
+        // the step's own controls only: the page that slides out takes no tap
+        match (self.step(), node) {
             (EventStep::Details, "#event/scroll") => self.on_body(gesture, now),
             (EventStep::Details, "#event/join") if tapped(&mut self.join) => {
                 let url = self.offers.join.clone();
@@ -523,11 +531,10 @@ impl EventPanel {
         if self.qr.is_empty() { None } else { images::get(EVENT_QR_KEY) }
     }
 
+    /// Slides to `step`. The QR code's picture stays: its page is drawn while it slides out; it
+    /// goes when the panel closes or the next code replaces it.
     fn go(&mut self, step: EventStep) {
-        if step != EventStep::Qr {
-            self.show_qr(None);
-        }
-        self.step = step;
+        self.pages.show(step as usize);
     }
 
     fn wait(&mut self, command: &'static str, event_id: String, response: Option<Rsvp>, status: &str, now: Instant) {
@@ -672,7 +679,7 @@ impl AgendaCard {
                 }
                 None => self.event.close(),
             }
-        } else if self.event.is_open() && self.event.step == EventStep::Calendar && !self.linked() {
+        } else if self.event.is_open() && self.event.step() == EventStep::Calendar && !self.linked() {
             // unlinked (from here or elsewhere): the link's step has nothing to show
             self.event.close();
         }
