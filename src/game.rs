@@ -160,8 +160,10 @@ pub enum Reach {
     NotRunning,
     /// A game reads the FIFO and the panel may write it.
     Runs,
-    /// A game made the FIFO and reads it, but the panel may not open it (an enforcing board
-    /// without a rule for the FIFO): its picture shows, its keys do not arrive.
+    /// There is a FIFO the panel may not open (an enforcing board without a rule for it): a
+    /// game may be running, its keys do not arrive. The panel cannot tell whether anything reads
+    /// the FIFO; doom_app removes its FIFO when it ends, so one that is there most likely has its
+    /// game.
     KeysBlocked,
 }
 
@@ -185,7 +187,7 @@ pub fn reach(errno: Option<i32>) -> Reach {
 pub fn status(reach: Reach) -> &'static str {
     match reach {
         Reach::Runs => "Starting the game",
-        Reach::KeysBlocked => "The game runs, but the panel may not send it keys",
+        Reach::KeysBlocked => "The game may be running, but the panel may not send it keys",
         Reach::NotRunning => "The game is not running",
     }
 }
@@ -370,7 +372,7 @@ mod tests {
         assert_eq!(p.held(), [false; 4]);
         assert_eq!(Pad::index("#game/fire"), None);
         assert_eq!((status(Reach::Runs), status(Reach::NotRunning)), ("Starting the game", "The game is not running"));
-        assert_eq!(status(Reach::KeysBlocked), "The game runs, but the panel may not send it keys");
+        assert_eq!(status(Reach::KeysBlocked), "The game may be running, but the panel may not send it keys");
         assert_eq!(Pad::default().buttons[0].variant(), "kind=scrim, state=default, icon=chevron-up, size=regular", "the design's");
         assert!(in_image("true"));
         assert!(!in_image("") && !in_image("false") && !in_image("1"));
