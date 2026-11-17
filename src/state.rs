@@ -49,6 +49,9 @@ pub struct State {
     pub panel: Sheet,
     /// The settings (#prefs, the library's #sheet at the right edge), opened by Settings.
     pub prefs: PrefsSheet,
+    /// The game (#game, the library's #sheet as a dialog), opened by the status row's game
+    /// button: the game's picture and its keys (game.rs).
+    pub game: GamePanel,
     /// What the panel's browser shows (browser.rs).
     #[cfg(browser)]
     pub browser: BrowserPanel,
@@ -141,6 +144,8 @@ pub const DEVICE_LAYOUT: Layout = Layout::Dialog;
 pub const PANEL_LAYOUT: Layout = Layout::Panel(Edge::Right);
 /// The settings' layout: a panel at the right edge, as the browser's panel.
 pub const PREFS_LAYOUT: Layout = Layout::Panel(Edge::Right);
+/// The game's layout: a dialog in the middle.
+pub const GAME_LAYOUT: Layout = Layout::Dialog;
 /// The System bundle's settings the sheet shows (everyware bundles/system): the group `time`
 /// with the time zone (an IANA name in UTF-8 bytes) and the clock's format, the group `units`
 /// with the unit of temperatures (an enum: the index of the sheet's segment, °C 0, °F 1).
@@ -330,6 +335,109 @@ impl PrefsSheet {
     }
 }
 
+/// The game's dialog (#game, design/game-patch.js): the game's picture in the zone
+/// #game/picture, a direction pad left of it, Fire and Use right of it, close at the top. A
+/// button held is its key down (game.rs); the game pauses itself while the dialog is closed.
+#[derive(Debug)]
+pub struct GamePanel {
+    pub sheet: Sheet,
+    pub close: IconButton,
+    /// The direction pad: up, down, left, right (game::Key's order).
+    pub pad: [IconButton; 4],
+    pub fire: Button,
+    pub use_key: Button,
+    /// The keys the game was told are down.
+    pub held: crate::game::Held,
+    /// What shows under the picture until the game's first frame (#game/status).
+    pub status: String,
+    /// A key could not be sent since the dialog opened (said once in the log).
+    pub unsent: bool,
+}
+
+impl Default for GamePanel {
+    fn default() -> Self {
+        let pad = |icon| IconButton::new(IconButtonKind::Tonal, icon);
+        GamePanel {
+            sheet: Sheet::new(GAME_LAYOUT),
+            close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
+            pad: [pad(Icon::ChevronUp), pad(Icon::ChevronDown), pad(Icon::ChevronLeft), pad(Icon::ChevronRight)],
+            fire: Button::new(ButtonKind::Primary, "Fire").compact(),
+            use_key: Button::new(ButtonKind::Secondary, "Use").compact(),
+            held: Default::default(),
+            status: String::new(),
+            unsent: false,
+        }
+    }
+}
+
+impl GamePanel {
+    /// The keys as the buttons hold them now, in game::Key's order.
+    pub fn keys(&self) -> [(crate::game::Key, bool); 6] {
+        use crate::game::Key;
+        let [up, down, left, right] = &self.pad;
+        [
+            (Key::Up, up.press.pressed),
+            (Key::Down, down.press.pressed),
+            (Key::Left, left.press.pressed),
+            (Key::Right, right.press.pressed),
+            (Key::Fire, self.fire.press.pressed),
+            (Key::Use, self.use_key.press.pressed),
+        ]
+    }
+
+    /// The button of a node of the dialog, if it is one of the game's keys.
+    pub fn key_button(&mut self, node: &str) -> Option<KeyButton<'_>> {
+        let [up, down, left, right] = &mut self.pad;
+        Some(match node {
+            "#game/up" => KeyButton::Pad(up),
+            "#game/down" => KeyButton::Pad(down),
+            "#game/left" => KeyButton::Pad(left),
+            "#game/right" => KeyButton::Pad(right),
+            "#game/fire" => KeyButton::Text(&mut self.fire),
+            "#game/use" => KeyButton::Text(&mut self.use_key),
+            _ => return None,
+        })
+    }
+
+    /// Opens the dialog; `running`: whether a game reads the keys (game::running).
+    pub fn open(&mut self, running: bool) {
+        self.status = if running { "Starting the game" } else { "The game is not running" }.to_string();
+        self.unsent = false;
+        self.sheet.open();
+    }
+
+    /// Closes the dialog: every button lets go. Returns the keys to send up.
+    pub fn close(&mut self) -> Vec<(crate::game::Key, bool)> {
+        for b in &mut self.pad {
+            b.on(everyware_ui::Gesture::Cancel);
+        }
+        self.fire.on(everyware_ui::Gesture::Cancel);
+        self.use_key.on(everyware_ui::Gesture::Cancel);
+        self.sheet.close();
+        self.held.release()
+    }
+}
+
+/// A button of the game's dialog that is a key: an icon button of the pad, or Fire and Use.
+pub enum KeyButton<'a> {
+    Pad(&'a mut IconButton),
+    Text(&'a mut Button),
+}
+
+impl KeyButton<'_> {
+    /// Applies a gesture: the button's pressed state is its key's.
+    pub fn on(self, gesture: everyware_ui::Gesture) {
+        match self {
+            KeyButton::Pad(b) => {
+                b.on(gesture);
+            }
+            KeyButton::Text(b) => {
+                b.on(gesture);
+            }
+        }
+    }
+}
+
 /// The dashboard's controls: library components in the slots of #smarthome-root
 /// (design/dashboard-patch.js). Local state until the bundles drive them.
 #[derive(Debug)]
@@ -355,6 +463,8 @@ pub struct Dashboard {
     pub door_details: IconButton,
     pub settings: IconButton,
     pub talk: Button,
+    /// The status row's game button, which opens the game (#status/game).
+    pub game: IconButton,
 }
 
 /// The setpoint's range in °C.
@@ -378,6 +488,7 @@ impl Default for Dashboard {
             headers: [Pressable::default(); 4],
             door_details: IconButton::new(IconButtonKind::Tonal, Icon::ChevronRight),
             settings: IconButton::new(IconButtonKind::Tonal, Icon::Settings),
+            game: IconButton::new(IconButtonKind::Glass, Icon::Gamepad).compact(),
             talk: Button::new(ButtonKind::Primary, "Talk").compact(),
         }
     }
