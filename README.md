@@ -1,8 +1,10 @@
 # smarthome-app
 
 The smart home panel on harry (1920 x 1080): the time and the weather, the rooms as tiles (the
-lights, a dimmer, the fan, the climate), the camera, the intercom, the front door, the agenda (a
-tap on an event shows its details at the right), the Wi-Fi settings and the settings in sheets,
+lights, a dimmer, the fan, the climate), the camera (a still every few seconds in its tile, live
+over the whole screen from its open button; drawn by the camera-app process into two zones,
+`src/camera.rs`), the intercom, the front door, the agenda (a tap on an event shows its details at
+the right), the Wi-Fi settings and the settings in sheets,
 and a game in a dialog: DOOM, run by the doom-app process, its picture in a zone of the dialog
 and the dialog's buttons its keys over it (`src/game.rs`). The status row has the game's button
 only in an image with the game (`ro.vendor.everyware.game=true`, set by doom-app's
@@ -32,7 +34,7 @@ reboot. The key in `apex/keys/` is a test key of this public repository, as AOSP
 are: a product signs its APEX with a key of its own, never with this one.
 
 Options: `--wayland-zones` serves Wayland clients and shows them in the zones of the design (the
-camera tile; the game's picture; the browser panel only in a build with the experimental browser, `EVERYWARE_BROWSER=true`, which nothing on the dashboard opens) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
+camera tile and its full view; the game's picture; the browser panel only in a build with the experimental browser, `EVERYWARE_BROWSER=true`, which nothing on the dashboard opens) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
 frame rate; `--zone-plane` puts a client on a display plane of its own (a board whose display
 has no planes for that, such as Cuttlefish, turns it off with `ro.vendor.everyware.zone_plane=false`;
 the dashboard then draws the zone, still only on a new client frame); `--zone-redraw

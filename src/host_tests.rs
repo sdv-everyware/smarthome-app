@@ -3,6 +3,7 @@
 
 pub mod agenda;
 pub mod agenda_card;
+pub mod camera;
 pub mod game;
 pub mod zone_plane;
 pub mod zones;

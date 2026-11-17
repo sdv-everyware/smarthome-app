@@ -151,20 +151,22 @@ const { C, FONT } = helpers;
 
   // 3. camera, rooms, door, settings
   slotInto(find('Camera caption', 'Open feed'), '#camera/open', v('#icon-button', 'kind=scrim, state=default, icon=maximize-2, size=regular'));
-  // The camera picture becomes a zone: on the device another process (a harry client, later
-  // the browser) draws into it over Wayland (smarthome-app --wayland-zones). harry shows an
+  // The camera picture becomes a zone: on the device camera-app (a harry client) draws a still
+  // into it over Wayland (smarthome-app --wayland-zones, src/camera.rs). harry shows an
   // external image only on a plain frame (Shape::Rect); a rectangle layer imports as a vector
   // (VectorRect) and is skipped. So: a frame of the same size made exactly like the working
-  // zone of the DOOM HUD (#doom in doom-hud.fig): no children, a white solid fill (where no
-  // client frame is, the zone shows white, never a picture that looks like one), its own clip,
-  // the same two drop shadows. The tile (Living room camera, radius 32, clips) rounds it.
+  // zone of the DOOM HUD (#doom in doom-hud.fig): no children, the dark camera-app draws while
+  // it has no picture (where no client frame is, the tile is dark under #camera/offline, never
+  // a picture that looks like one), its own clip, the same two drop shadows. The tile (Living
+  // room camera, radius 32, clips) rounds it.
   {
     const feed = find('Living room camera', 'Camera feed');
     feed.type = 'FRAME';
     feed.name = '#camera/feed';
     delete feed.fillGeometry;
-    feed.fillPaints = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1, a: 1 }, opacity: 1, visible: true, blendMode: 'NORMAL',
-      authoredColor: { space: 'DEFAULT', c0: 1, c1: 1, c2: 1, c3: 1 } }];
+    const dark = { r: 0x1d / 255, g: 0x27 / 255, b: 0x33 / 255, a: 1 };
+    feed.fillPaints = [{ type: 'SOLID', color: dark, opacity: 1, visible: true, blendMode: 'NORMAL',
+      authoredColor: { space: 'DEFAULT', c0: dark.r, c1: dark.g, c2: dark.b, c3: 1 } }];
     feed.effects = [
       { type: 'DROP_SHADOW', offset: { x: 0, y: 4 }, radius: 4, visible: true, blendMode: 'NORMAL', spread: 0, showShadowBehindNode: false,
         color: { r: 0, g: 0, b: 0, a: 0.25 }, authoredColor: { space: 'DEFAULT', c0: 0, c1: 0, c2: 0, c3: 0.25 } },
@@ -174,6 +176,17 @@ const { C, FONT } = helpers;
     feed.cornerRadius = 0;
     feed.frameMaskDisabled = false;
     log('Living room camera / Camera feed -> #camera/feed (FRAME, the zone)');
+  }
+  // the LIVE chip: the app shows it only while the camera delivers (camera.rs Link)
+  rename('Living room camera', 'Live status', '#camera/live');
+  // the caption says what the tile is and nothing the panel does not know: the designer's
+  // "Camera · No motion detected" claimed a motion detection that nothing does
+  {
+    const identity = nodes.find(n => n.name === 'Camera identity');
+    const label = identity && kids(key(identity.guid)).find(n => n.type === 'TEXT' && /No motion/.test(n.textData.characters));
+    if (!label) throw new Error('Camera identity: the caption "Camera · No motion detected" not found');
+    setText(label, 'Camera');
+    log('Camera identity: "Camera · No motion detected" -> "Camera"');
   }
   slotInto(find('Light control', 'Light switch'), '#entryway/light', v('#toggle', 'state=default'));
   rename('Light identity', 'State', '#entryway/state');
