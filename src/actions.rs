@@ -70,10 +70,8 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
-                // the camera's view closed and slid out: back to stills
-                if state.camera.settled(Instant::now()) {
-                    crate::camera::set_live(false);
-                }
+                // the camera's view settles here too when its wake-up did not come
+                settle_camera(&mut state.camera);
                 // the game's dialog follows a game that ends or starts while it is open
                 if state.game.sheet.is_open() {
                     state.game.follow(crate::game::running());
@@ -89,7 +87,10 @@ impl StateAction<State, ()> for HomeAction {
                     state.browser.shown();
                 }
             }
-            HomeAction::Camera(event) => state.camera.link.apply(*event),
+            HomeAction::Camera(event) => {
+                state.camera.link.apply(*event);
+                settle_camera(&mut state.camera);
+            }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
             HomeAction::Agenda(agenda) => state.agenda.set(agenda.clone(), &state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now()),
             HomeAction::HouseLink(up) => state.house_link = *up,
@@ -141,7 +142,7 @@ impl StateAction<State, ()> for HomeAction {
                 // the tile's open button: the camera live over the whole screen
                 if clicked(&mut state.dash.open_feed, *gesture) {
                     log::info!("smarthome: camera: the full view opened");
-                    state.camera.open();
+                    crate::camera::wake_at(state.camera.open(Instant::now()));
                     crate::camera::set_live(true);
                 }
             }
@@ -311,7 +312,15 @@ fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
 fn on_camera_view(view: &mut crate::camera::CameraView, node: &str, gesture: Gesture) {
     if node == "#camera-view/close" && clicked(&mut view.close, gesture) {
         log::info!("smarthome: camera: the full view closed");
-        view.close(Instant::now());
+        crate::camera::wake_at(view.close(Instant::now()));
+    }
+}
+
+/// The camera's view after its open or close played: the live zone on, or off with the camera
+/// back to stills.
+fn settle_camera(view: &mut crate::camera::CameraView) {
+    if view.settle(Instant::now()) == Some(crate::camera::Settled::Closed) {
+        crate::camera::set_live(false);
     }
 }
 

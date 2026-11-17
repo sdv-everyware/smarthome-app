@@ -27,9 +27,9 @@ pub struct CommandLineArgs {
     /// (RB3 HDMI touch: 0..32767). Unset: positions pass through.
     #[arg(long)]
     pub touch_size: Option<String>,
-    /// Serve Wayland clients (other harry processes) and show the one bound to
-    /// ZONE_CAMERA_TAG in the camera tile. Off: the tile keeps its design picture and no
-    /// socket is opened.
+    /// Serve Wayland clients (other harry processes) and show them in their zones: camera-app's
+    /// tile and full view (camera.rs), the game. Off: no socket is opened and the camera tile
+    /// says "Camera offline" (no camera app can draw it).
     #[arg(long)]
     pub wayland_zones: bool,
     /// What redraws the dashboard for the camera tile's and the browser's Wayland zones: `timer`

@@ -56,10 +56,10 @@ impl Customizer<bool> for BrowserZoneCustomizer {
     }
 }
 
-/// The camera's full view (#camera-view/picture) as the zone camera::ZONE_LIVE. On while
-/// camera-app is connected, open or closed (the closed view waits below the screen): opening
-/// and closing never switch the zone mid-animation. Applied once, whatever --zone-redraw says,
-/// as the game's zone: the camera's frames drive the redraws.
+/// The camera's full view (#camera-view/picture) as the zone camera::ZONE_LIVE: on while the
+/// view rests on the screen and while it slides out (camera.rs CameraView), never switched in
+/// the middle of a slide. Applied once, whatever --zone-redraw says, as the game's zone: the
+/// camera's frames drive the redraws.
 #[derive(Clone, Debug, Default)]
 pub struct CameraViewZoneCustomizer {}
 
@@ -268,8 +268,8 @@ ui_model! {
     camera_offline: DisplayState = "#camera/offline";
     // The camera's full view (design/camera-patch.js): the whole screen, below it while closed;
     // it slides in and out as a sheet's card (camera.rs CameraView). Its picture is the zone
-    // ZONE_LIVE (live video), on while camera-app is connected; the band with the chip and close
-    // over it.
+    // ZONE_LIVE (live video, while the view rests or slides out); the band with the chip and
+    // close over it.
     camera_view: Position = "#camera-view" ["FollowPositionCustomizer"] = Position::new((0.0, crate::camera::CLOSED_Y), None);
     camera_view_zone: bool = "#camera-view/picture" ["CameraViewZoneCustomizer"] = false;
     camera_view_offline: DisplayState = "#camera-view/offline" = DisplayState::Gone;

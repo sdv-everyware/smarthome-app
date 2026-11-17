@@ -47,13 +47,15 @@ const SOCKET: &str = "har-camera";
 const RETRY: Duration = Duration::from_secs(2);
 const MAX_LINE: usize = 16;
 
-/// What the camera app said.
+/// What the camera app said, or the view's slide that ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     /// Connected to the camera app, or the connection ended.
     Connected(bool),
     /// The camera delivers pictures (on) or not.
     On(bool),
+    /// The time `wake_at` asked for came: the view's open or close has played.
+    Settled,
 }
 
 /// The camera as the panel knows it.
@@ -76,6 +78,7 @@ impl Link {
                 }
             }
             Event::On(on) => self.on = self.connected && on,
+            Event::Settled => {}
         }
     }
 }
@@ -86,16 +89,30 @@ pub const CLOSED_Y: f32 = 1080.0 + 40.0;
 /// The full view (#camera-view): the whole screen, the camera live, closed by its button. It
 /// opens and closes as the library's sheets do: the Overlay's state, the view's y following it
 /// with the open and close transitions (display only in harry: no new tree, no layout). Its
-/// zone stays on while camera-app is connected, so neither opening nor closing switches the
-/// zone mid-animation; the camera goes back to stills once the close has played (`settled`),
-/// and the view slides out on live frames.
+/// zone is on only while the view rests on the screen and while it slides out: harry gives up a
+/// zone's display plane for good when the zone is first shown off the screen (zone_plane.rs
+/// `activate`), and on a texture every camera frame would redraw the dashboard. So the zone
+/// comes on once the open has played (the view is dark while it slides in, the camera already
+/// live), stays on while it slides out on live frames, and goes off with the camera back to
+/// stills once the close has played (`settle`, at the time `open` and `close` return).
 #[derive(Debug)]
 pub struct CameraView {
     pub overlay: Overlay,
     pub close: IconButton,
     pub link: Link,
-    /// When the view was closed, until the camera is told to go back to stills.
-    closing: Option<Instant>,
+    /// When the open or close plays out.
+    due: Option<Instant>,
+    /// The live zone is shown (the view rested on the screen since it opened).
+    zone: bool,
+}
+
+/// What `settle` found played out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Settled {
+    /// The view rests on the screen: its zone is on.
+    Opened,
+    /// The view is below the screen: its zone is off; the caller tells camera-app `still`.
+    Closed,
 }
 
 impl Default for CameraView {
@@ -104,9 +121,15 @@ impl Default for CameraView {
             overlay: Overlay::new(),
             close: IconButton::new(IconButtonKind::Scrim, Icon::Close),
             link: Link::default(),
-            closing: None,
+            due: None,
+            zone: false,
         }
     }
+}
+
+/// How long the overlay's `change` plays.
+fn played(change: Change) -> Duration {
+    transitions::transition(ComponentKind::Overlay, change).map_or(Duration::ZERO, |t| t.delay + t.duration)
 }
 
 impl CameraView {
@@ -114,28 +137,33 @@ impl CameraView {
         self.overlay.open
     }
 
-    /// Opens the view; the caller asks camera-app for live video (`set_live(true)`).
-    pub fn open(&mut self) {
+    /// Opens the view at `now`; the caller asks camera-app for live video (`set_live(true)`) and
+    /// wakes the reducer at the time returned (`wake_at`).
+    pub fn open(&mut self, now: Instant) -> Instant {
         self.overlay.open();
-        self.closing = None;
+        let due = now + played(Change::Open);
+        self.due = Some(due);
+        due
     }
 
-    /// Closes the view at `now`; the camera stays live while it slides out.
-    pub fn close(&mut self, now: Instant) {
+    /// Closes the view at `now`; the camera stays live while it slides out. The caller wakes the
+    /// reducer at the time returned.
+    pub fn close(&mut self, now: Instant) -> Instant {
         self.overlay.close();
-        self.closing = Some(now);
+        let due = now + played(Change::Close);
+        self.due = Some(due);
+        due
     }
 
-    /// True once, when the close has played at `now`: the caller tells camera-app to go back to
-    /// stills (`set_live(false)`).
-    pub fn settled(&mut self, now: Instant) -> bool {
-        let played = transitions::transition(ComponentKind::Overlay, Change::Close).map_or(Duration::ZERO, |t| t.delay + t.duration);
-        match self.closing {
-            Some(at) if now.saturating_duration_since(at) >= played => {
-                self.closing = None;
-                true
+    /// The open or close that played out by `now`, once.
+    pub fn settle(&mut self, now: Instant) -> Option<Settled> {
+        match self.due {
+            Some(due) if now >= due => {
+                self.due = None;
+                self.zone = self.overlay.open;
+                Some(if self.overlay.open { Settled::Opened } else { Settled::Closed })
             }
-            _ => false,
+            _ => None,
         }
     }
 
@@ -144,9 +172,14 @@ impl CameraView {
         self.overlay.slide(0.0, CLOSED_Y)
     }
 
-    /// The tile's and the view's zones are on: the camera app is there to draw them.
+    /// The tile's zone is on: the camera app is there to draw it.
     pub fn zones(&self) -> bool {
         self.link.connected
+    }
+
+    /// The view's live zone is on (see the type).
+    pub fn live_zone(&self) -> bool {
+        self.link.connected && self.zone
     }
 }
 
@@ -161,6 +194,17 @@ pub fn parse(line: &[u8]) -> Option<Event> {
 
 /// The full view's mode the camera app was asked for, said again after a reconnect.
 static LIVE: AtomicBool = AtomicBool::new(false);
+/// The timer thread's inbox: the times to send Event::Settled at.
+static WAKE: Mutex<Option<std::sync::mpsc::Sender<Instant>>> = Mutex::new(None);
+
+/// Sends Event::Settled at `at` (the end of the view's slide), so that the reducer runs then.
+pub fn wake_at(at: Instant) {
+    if let Ok(w) = WAKE.lock() {
+        if let Some(tx) = w.as_ref() {
+            let _ = tx.send(at);
+        }
+    }
+}
 /// The connection's writing end, while connected.
 static WRITER: Mutex<Option<UnixStream>> = Mutex::new(None);
 
@@ -191,9 +235,38 @@ fn send(w: &mut Option<UnixStream>, live: bool) {
 }
 
 /// The thread of the control socket `path` (socket_path): connects, hands the camera app's
-/// words to `on_event`, connects again when the connection ends. `on_event` returns false when
-/// the app is ending.
-pub fn spawn(path: PathBuf, on_event: impl Fn(Event) -> bool + Send + 'static) {
+/// words to `on_event`, connects again when the connection ends; and the timer of `wake_at`.
+/// `on_event` returns false when the app is ending.
+pub fn spawn(path: PathBuf, on_event: impl Fn(Event) -> bool + Send + Sync + 'static) {
+    let on_event = std::sync::Arc::new(on_event);
+    let (tx, rx) = std::sync::mpsc::channel::<Instant>();
+    if let Ok(mut w) = WAKE.lock() {
+        *w = Some(tx);
+    }
+    let timer_event = on_event.clone();
+    let timer = std::thread::Builder::new().name("camera-wake".to_string()).spawn(move || {
+        let mut due: Vec<Instant> = Vec::new();
+        loop {
+            due.sort();
+            let next = match due.first() {
+                Some(at) => rx.recv_timeout(at.saturating_duration_since(Instant::now())),
+                None => rx.recv().map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected),
+            };
+            match next {
+                Ok(at) => due.push(at),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    due.remove(0);
+                    if !timer_event(Event::Settled) {
+                        return;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    });
+    if let Err(e) = timer {
+        log::warn!("smarthome: camera: no wake-up thread ({e}): the view settles with the clock's tick");
+    }
     let spawned = std::thread::Builder::new().name("camera-link".to_string()).spawn(move || loop {
         let Ok(stream) = UnixStream::connect(&path) else {
             std::thread::sleep(RETRY);
@@ -214,7 +287,7 @@ pub fn spawn(path: PathBuf, on_event: impl Fn(Event) -> bool + Send + 'static) {
         if !on_event(Event::Connected(true)) {
             return;
         }
-        let ended = read(stream, &on_event);
+        let ended = read(stream, &*on_event);
         if let Ok(mut w) = WRITER.lock() {
             *w = None;
         }
@@ -279,23 +352,36 @@ mod tests {
     }
 
     #[test]
-    fn the_view_slides_and_goes_to_stills_once_the_close_has_played() {
+    fn the_live_zone_is_on_only_while_the_view_rests_or_slides_out() {
         let t0 = Instant::now();
         let mut v = CameraView::default();
-        assert_eq!((v.is_open(), v.y()), (false, CLOSED_Y));
-        v.open();
+        v.link.apply(Event::Connected(true));
+        assert_eq!((v.is_open(), v.y(), v.live_zone()), (false, CLOSED_Y, false));
+        let due = v.open(t0);
         assert_eq!((v.is_open(), v.y()), (true, 0.0));
         assert!(v.overlay.transition().is_some(), "it slides in");
-        assert!(!v.settled(t0), "nothing to settle while open");
-        v.close(t0);
+        assert!(!v.live_zone(), "no zone while it slides in from below the screen");
+        assert_eq!(v.settle(due - Duration::from_millis(1)), None);
+        assert_eq!(v.settle(due), Some(Settled::Opened));
+        assert!(v.live_zone(), "on once it rests on the screen");
+        assert_eq!(v.settle(due + Duration::from_secs(1)), None, "once");
+        let due = v.close(t0 + Duration::from_secs(5));
         assert_eq!(v.y(), CLOSED_Y);
-        assert!(!v.settled(t0 + Duration::from_millis(100)), "still sliding out, still live");
-        assert!(v.settled(t0 + Duration::from_secs(1)));
-        assert!(!v.settled(t0 + Duration::from_secs(2)), "once");
-        // opened again before the close played: no stills
-        v.close(t0);
-        v.open();
-        assert!(!v.settled(t0 + Duration::from_secs(1)));
+        assert!(v.live_zone(), "it slides out on live frames");
+        assert_eq!(v.settle(due), Some(Settled::Closed));
+        assert!(!v.live_zone());
+        // closed before the open played: the zone never comes on
+        let due = v.open(t0);
+        // the close (400 ms) is due after the open (550 ms) would have played
+        v.close(t0 + Duration::from_millis(300));
+        assert_eq!(v.settle(due), None, "the close is due later");
+        assert_eq!(v.settle(t0 + Duration::from_secs(2)), Some(Settled::Closed));
+        assert!(!v.live_zone());
+        // a camera app that is gone has no zones
+        v.open(t0);
+        v.settle(t0 + Duration::from_secs(2));
+        v.link.apply(Event::Connected(false));
+        assert!(!v.live_zone() && !v.zones());
     }
 
     #[test]
@@ -308,7 +394,8 @@ mod tests {
     fn the_link_hears_the_words_and_says_the_mode() {
         use std::os::unix::net::UnixListener;
         use std::sync::mpsc::channel;
-        let dir = std::env::temp_dir().join(format!("smarthome-camera-test-{}", std::process::id()));
+        // short, as a unix socket's path must be ($TMPDIR may be longer); removed at the end
+        let dir = std::path::PathBuf::from(format!("/tmp/shc-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = socket_path(Some(&dir));
@@ -330,5 +417,6 @@ mod tests {
         assert_eq!(&got, b"still\n");
         camera.write_all(b"zoom\n").unwrap();
         assert_eq!(next(), Event::Connected(false), "an unknown word ends the connection");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

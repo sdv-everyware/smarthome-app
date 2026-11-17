@@ -21,8 +21,9 @@
 //   connected (the zone is off then and the feed shows its dark fill); camera-app draws its own
 //   offline state into the zone when the camera is missing.
 // - #camera-view over #smarthome-root: a frame of the whole screen in a plain absolute frame,
-//   drawn open. The app moves it as a sheet's card (a position override with the library's
-//   open and close transitions): below the screen while closed. In it:
+//   drawn closed: below the screen, as a closed sheet's card waits behind its edge (the
+//   dashboard stays in sight in the file). The app moves it as a sheet's card (a position
+//   override with the library's open and close transitions). In it:
 //   - #camera-view/picture: a plain frame of the whole screen, dark, its own clip: the app turns
 //     it into the Wayland zone #zone/camera-live, where camera-app shows live video;
 //   - #camera-view/offline: "Camera offline" in the middle, while no camera app is connected;
@@ -44,8 +45,9 @@ const WHITE = [1, 1, 1];
 // the tile (dashboard-patch.js: Living room camera, 904 x 360) and its offline text, above the
 // caption (which starts 273 down)
 const TILE = 'Living room camera', TILE_W = 904, TILE_OFFLINE_Y = 120;
-// the view's top band, its padding, the chip's place
-const BAND_H = 112, PAD = 40;
+// the view's top band, its padding, the chip's place; where the closed view waits (camera.rs
+// CLOSED_Y)
+const BAND_H = 112, PAD = 40, CLOSED_Y = SCREEN_H + 40;
 
 module.exports = function patch(msg, helpers) {
   ({ key, authoring, FONT } = helpers);
@@ -77,7 +79,7 @@ module.exports = function patch(msg, helpers) {
 
   // 2. the full view over the dashboard, after every other layer
   const layer = frame(root, 'Camera layer', 0, 0, SCREEN_W, SCREEN_H, { stackPositioning: 'ABSOLUTE' });
-  const view = frame(layer, '#camera-view', 0, 0, SCREEN_W, SCREEN_H, { fillPaints: solid(DARK), frameMaskDisabled: false });
+  const view = frame(layer, '#camera-view', 0, CLOSED_Y, SCREEN_W, SCREEN_H, { fillPaints: solid(DARK), frameMaskDisabled: false });
   frame(view, '#camera-view/picture', 0, 0, SCREEN_W, SCREEN_H, { fillPaints: solid(DARK), frameMaskDisabled: false });
   offline(view, '#camera-view/offline', SCREEN_H / 2 - 60, SCREEN_W, 40);
   // the band: black 35 % (a node's opacity: Figma drops a paint's alpha on import)
