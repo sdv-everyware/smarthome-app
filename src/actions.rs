@@ -70,6 +70,10 @@ impl StateAction<State, ()> for HomeAction {
         match self {
             HomeAction::Tick(clock) => {
                 state.clock = clock.clone();
+                // the camera's view closed and slid out: back to stills
+                if state.camera.settled(Instant::now()) {
+                    crate::camera::set_live(false);
+                }
                 // the game's dialog follows a game that ends or starts while it is open
                 if state.game.sheet.is_open() {
                     state.game.follow(crate::game::running());
@@ -102,7 +106,7 @@ impl StateAction<State, ()> for HomeAction {
             }
             HomeAction::MatterResult(result) => on_matter_result(&mut state.matter_pending, &state.devices, result),
             // the camera's full view covers the screen: it takes every gesture while open
-            HomeAction::Gesture(node, gesture) if state.camera.open => on_camera_view(&mut state.camera, node, *gesture),
+            HomeAction::Gesture(node, gesture) if state.camera.is_open() => on_camera_view(&mut state.camera, node, *gesture),
             #[cfg(browser)]
             HomeAction::Gesture(node, gesture) if state.panel.is_open() => {
                 // the panel while it is open: a tap on the scrim or on close closes it, the card
@@ -138,6 +142,7 @@ impl StateAction<State, ()> for HomeAction {
                 if clicked(&mut state.dash.open_feed, *gesture) {
                     log::info!("smarthome: camera: the full view opened");
                     state.camera.open();
+                    crate::camera::set_live(true);
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
@@ -301,12 +306,12 @@ fn clicked(button: &mut IconButton, gesture: Gesture) -> bool {
 }
 
 /// The camera's full view while it is open: its close button closes it (the camera goes back
-/// to stills). The picture is camera-app's zone: the looper hands its touches to camera-app,
-/// not here; the rest of the screen under the view takes nothing.
+/// to stills once it slid out: the Tick). The picture is camera-app's zone: the looper hands
+/// its touches to camera-app, not here; the rest of the screen under the view takes nothing.
 fn on_camera_view(view: &mut crate::camera::CameraView, node: &str, gesture: Gesture) {
     if node == "#camera-view/close" && clicked(&mut view.close, gesture) {
         log::info!("smarthome: camera: the full view closed");
-        view.close();
+        view.close(Instant::now());
     }
 }
 

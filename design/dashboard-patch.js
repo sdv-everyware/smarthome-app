@@ -179,6 +179,15 @@ const { C, FONT } = helpers;
   }
   // the LIVE chip: the app shows it only while the camera delivers (camera.rs Link)
   rename('Living room camera', 'Live status', '#camera/live');
+  // the caption says what the tile is and nothing the panel does not know: the designer's
+  // "Camera · No motion detected" claimed a motion detection that nothing does
+  {
+    const identity = nodes.find(n => n.name === 'Camera identity');
+    const label = identity && kids(key(identity.guid)).find(n => n.type === 'TEXT' && /No motion/.test(n.textData.characters));
+    if (!label) throw new Error('Camera identity: the caption "Camera · No motion detected" not found');
+    setText(label, 'Camera');
+    log('Camera identity: "Camera · No motion detected" -> "Camera"');
+  }
   slotInto(find('Light control', 'Light switch'), '#entryway/light', v('#toggle', 'state=default'));
   rename('Light identity', 'State', '#entryway/state');
   slotInto(find('Bedroom lights', 'Dimmer control'), '#bedroom/dimmer', v('#slider', 'state=default'));

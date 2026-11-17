@@ -29,12 +29,14 @@
 //! Nothing here needs a device: its tests run on the host (smarthome_app_host_test).
 
 use everyware_ui_core::button::{Icon, IconButton, IconButtonKind};
+use everyware_ui_core::overlay::Overlay;
+use everyware_ui_core::transitions::{self, Change, ComponentKind};
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The tile's zone: the tag camera-app names in har_zone (its config.rs Zone::Tile).
 pub const ZONE_TILE: &str = "#zone/camera";
@@ -78,31 +80,68 @@ impl Link {
     }
 }
 
-/// The full view (#camera-view): the whole screen, the camera live, closed by its button.
+/// Where the closed view waits: below the screen, as a closed sheet waits behind its edge.
+pub const CLOSED_Y: f32 = 1080.0 + 40.0;
+
+/// The full view (#camera-view): the whole screen, the camera live, closed by its button. It
+/// opens and closes as the library's sheets do: the Overlay's state, the view's y following it
+/// with the open and close transitions (display only in harry: no new tree, no layout). Its
+/// zone stays on while camera-app is connected, so neither opening nor closing switches the
+/// zone mid-animation; the camera goes back to stills once the close has played (`settled`),
+/// and the view slides out on live frames.
 #[derive(Debug)]
 pub struct CameraView {
-    pub open: bool,
+    pub overlay: Overlay,
     pub close: IconButton,
     pub link: Link,
+    /// When the view was closed, until the camera is told to go back to stills.
+    closing: Option<Instant>,
 }
 
 impl Default for CameraView {
     fn default() -> Self {
-        CameraView { open: false, close: IconButton::new(IconButtonKind::Scrim, Icon::Close), link: Link::default() }
+        CameraView {
+            overlay: Overlay::new(),
+            close: IconButton::new(IconButtonKind::Scrim, Icon::Close),
+            link: Link::default(),
+            closing: None,
+        }
     }
 }
 
 impl CameraView {
-    /// Opens the view and asks the camera app for live video.
-    pub fn open(&mut self) {
-        self.open = true;
-        set_live(true);
+    pub fn is_open(&self) -> bool {
+        self.overlay.open
     }
 
-    /// Closes the view: the camera goes back to stills.
-    pub fn close(&mut self) {
-        self.open = false;
-        set_live(false);
+    /// Opens the view; the caller asks camera-app for live video (`set_live(true)`).
+    pub fn open(&mut self) {
+        self.overlay.open();
+        self.closing = None;
+    }
+
+    /// Closes the view at `now`; the camera stays live while it slides out.
+    pub fn close(&mut self, now: Instant) {
+        self.overlay.close();
+        self.closing = Some(now);
+    }
+
+    /// True once, when the close has played at `now`: the caller tells camera-app to go back to
+    /// stills (`set_live(false)`).
+    pub fn settled(&mut self, now: Instant) -> bool {
+        let played = transitions::transition(ComponentKind::Overlay, Change::Close).map_or(Duration::ZERO, |t| t.delay + t.duration);
+        match self.closing {
+            Some(at) if now.saturating_duration_since(at) >= played => {
+                self.closing = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// The view's y: on the screen while open, below it while closed.
+    pub fn y(&self) -> f32 {
+        self.overlay.slide(0.0, CLOSED_Y)
     }
 
     /// The tile's and the view's zones are on: the camera app is there to draw them.
@@ -131,8 +170,9 @@ pub fn socket_path(runtime_dir: Option<&Path>) -> PathBuf {
     runtime_dir.unwrap_or(Path::new("/data/local/tmp")).join(SOCKET)
 }
 
-/// Asks the camera app for live video (the full view opened) or stills (closed). Never blocks
-/// for long (a write timeout); without a connection the mode goes when the thread connects.
+/// Asks the camera app for live video (the full view opened) or stills (closed and settled).
+/// Never blocks for long (a write timeout); without a connection the mode goes when the thread
+/// connects.
 pub fn set_live(live: bool) {
     let Ok(mut w) = WRITER.lock() else { return };
     // under the writer's lock: a reconnect sends the mode under it too, so the last word the
@@ -239,6 +279,26 @@ mod tests {
     }
 
     #[test]
+    fn the_view_slides_and_goes_to_stills_once_the_close_has_played() {
+        let t0 = Instant::now();
+        let mut v = CameraView::default();
+        assert_eq!((v.is_open(), v.y()), (false, CLOSED_Y));
+        v.open();
+        assert_eq!((v.is_open(), v.y()), (true, 0.0));
+        assert!(v.overlay.transition().is_some(), "it slides in");
+        assert!(!v.settled(t0), "nothing to settle while open");
+        v.close(t0);
+        assert_eq!(v.y(), CLOSED_Y);
+        assert!(!v.settled(t0 + Duration::from_millis(100)), "still sliding out, still live");
+        assert!(v.settled(t0 + Duration::from_secs(1)));
+        assert!(!v.settled(t0 + Duration::from_secs(2)), "once");
+        // opened again before the close played: no stills
+        v.close(t0);
+        v.open();
+        assert!(!v.settled(t0 + Duration::from_secs(1)));
+    }
+
+    #[test]
     fn the_socket_is_next_to_the_wayland_socket() {
         assert_eq!(socket_path(Some(Path::new("/data/vendor/everyware/run"))), Path::new("/data/vendor/everyware/run/har-camera"));
         assert_eq!(socket_path(None), Path::new("/data/local/tmp/har-camera"));
@@ -260,12 +320,11 @@ mod tests {
         assert_eq!(next(), Event::Connected(true));
         camera.write_all(b"on\n").unwrap();
         assert_eq!(next(), Event::On(true));
-        let mut view = CameraView::default();
-        view.open();
+        set_live(true);
         let mut got = [0u8; 5];
         camera.read_exact(&mut got).unwrap();
         assert_eq!(&got, b"live\n");
-        view.close();
+        set_live(false);
         let mut got = [0u8; 6];
         camera.read_exact(&mut got).unwrap();
         assert_eq!(&got, b"still\n");

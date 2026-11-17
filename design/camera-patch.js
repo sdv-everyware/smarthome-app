@@ -20,8 +20,9 @@
 //   a line under it, in the middle above the caption. The app shows it while no camera app is
 //   connected (the zone is off then and the feed shows its dark fill); camera-app draws its own
 //   offline state into the zone when the camera is missing.
-// - #camera-view over #smarthome-root: a frame of the whole screen in a plain absolute frame.
-//   The app shows it while the view is open (DisplayState: gone while closed, no taps). In it:
+// - #camera-view over #smarthome-root: a frame of the whole screen in a plain absolute frame,
+//   drawn open. The app moves it as a sheet's card (a position override with the library's
+//   open and close transitions): below the screen while closed. In it:
 //   - #camera-view/picture: a plain frame of the whole screen, dark, its own clip: the app turns
 //     it into the Wayland zone #zone/camera-live, where camera-app shows live video;
 //   - #camera-view/offline: "Camera offline" in the middle, while no camera app is connected;

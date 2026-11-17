@@ -207,10 +207,11 @@ fn present_camera(model: &mut UiModel, state: &State) {
     model.camera_zone = zones;
     model.camera_live = shown(camera.link.on);
     model.camera_offline = shown(!zones);
-    model.camera_view = shown(camera.open);
-    model.camera_view_zone = zones && camera.open;
-    model.camera_view_offline = shown(camera.open && !zones);
-    model.camera_view_live = shown(camera.open && camera.link.on);
+    // the view slides with the library's overlay transitions; its zone stays on (camera.rs)
+    model.camera_view = Position::new((0.0, camera.y()), camera.overlay.transition());
+    model.camera_view_zone = zones;
+    model.camera_view_offline = shown(!zones);
+    model.camera_view_live = shown(camera.link.on);
     model.camera_view_close = slot("#camera-view/close", &camera.close);
 }
 
