@@ -78,7 +78,7 @@ pub fn wayland_zones() -> bool {
 }
 
 /// The property by which the product turns the panel's browser on. The browser is experimental
-/// and off by default; everyware's product/everyware.mk sets it with EVERYWARE_BROWSER=true,
+/// and off by default; everyware's product/everyware.mk sets it with EVERYWARE_EXPERIMENTAL_BROWSER=true,
 /// which also builds the panel with its browser code (the cfg browser).
 #[cfg(browser)]
 pub const BROWSER_PROPERTY: &str = "ro.vendor.everyware.browser";
