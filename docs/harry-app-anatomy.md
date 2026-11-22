@@ -42,9 +42,10 @@ The harry process is not an SDV participant either: the middleware client (`Comm
 exists only inside a bundle started by the lifecycle agent. So the screen has a **bridge
 bundle**, `DashboardServiceBundle` (`vendor/sdv-everyware/everyware/bundles/dashboard`): it
 subscribes to every topic the dashboard shows and pushes each update into the harry process
-over a local gRPC connection (`bundles/dashboard/proto/dashboard.proto`, port 7100 on
-127.0.0.1); the harry process only listens (`src/house_link.rs`). This is the shape of HAR's
-own reference: `HarSdvServiceBundle` pushes the vehicle data into `harry-app` the same way.
+over binder (`interfaces/screen`: `IScreenLink`); the harry process only serves
+(`src/screen_binder.rs`) and takes a call only from this bundle. This is the shape of HAR's
+own reference: `HarSdvServiceBundle` pushes the vehicle data into `harry-app`, there over a
+local gRPC connection.
 
 ```mermaid
 flowchart LR
@@ -53,10 +54,10 @@ flowchart LR
     end
     DT["dt_agent"]
     subgraph D["DashboardServiceBundle: the screen's bridge, own process"]
-        SUB["subscriber: weather, ..."] --> PUSH["gRPC client<br/>push every update, heartbeat 1/s,<br/>last values again after a reconnect"]
+        SUB["subscriber: weather, ..."] --> PUSH["binder client of IScreenLink<br/>push every update,<br/>last values again when the screen is back"]
     end
     subgraph APP["the harry process: smarthome_app + renderer, UI only"]
-        SRV["house_link.rs<br/>gRPC server 127.0.0.1:7100"] --> ACT["HomeAction::Weather(w)<br/>HomeAction::HouseLink(up)"] --> R["reducer: state"] --> P["presenter: #weather/..."]
+        SRV["screen_binder.rs<br/>binder service IScreenLink"] --> ACT["HomeAction::Weather(w)<br/>HomeAction::HouseLink(up)"] --> R["reducer: state"] --> P["presenter: #weather/..."]
     end
     NET["internet"] --> H
     PUB --> DT -- "weather" --> SUB
@@ -77,7 +78,7 @@ Two processes on each side, so a failure stays where it happens:
 |------------|--------------|----------------------|
 | a device bundle (a TLS handshake, a JSON parser, a device protocol) | the lifecycle agent restarts it; the bridge keeps the last value, the screen shows it | the screen and the touch input do not stop; no frame is lost |
 | the bridge bundle | restarted by the lifecycle agent; it subscribes again and the topics hand it the current values | the device bundles do not notice |
-| the harry process (the renderer, the presenter, a customizer) | the process restarts and listens again; the bridge sees the heartbeat answered and sends the last values at once | the devices and their state in the bundles are untouched: a lamp that is on stays on, the weather is not fetched again |
+| the harry process (the renderer, the presenter, a customizer) | the process restarts and serves again; the bridge finds the service within a second and sends the last values at once | the devices and their state in the bundles are untouched: a lamp that is on stays on, the weather is not fetched again |
 
 Also: only the device bundle needs network access and the permission for it; the topic serves
 every screen, every device and the AI agents
@@ -101,7 +102,7 @@ Official documentation of harry and HAR: [Display Safety: the high availability 
 | **UI model** | `src/ui_model.rs` | one field per Figma layer the app writes | only the presenter |
 | **Looper** | harry (`create_looper`) | owns the screen and the GPU, draws, delivers touches | nobody, it is harry's |
 | **UI event listener** | `src/ui_event_listener.rs` | turns a tap on a layer into an action | called by the looper |
-| **House link** | `src/house_link.rs` | the gRPC server the bridge bundle pushes the house's data into; every message and the heartbeat watchdog become actions | its own thread, started by `main.rs` |
+| **House link** | `src/screen_binder.rs` | the binder service the bridge bundle pushes the house's data into; every message and the death of the bundle's sink become actions | its own thread, started by `main.rs` |
 | **Side effects** | (stub, `src/main.rs`) | work that is not a state change, e.g. an RPC call to a bundle; never a socket of its own (see above) | returned by actions, run on their own thread |
 | Fonts | `src/resource_loader.rs` | every face the design uses | once at start |
 | Wiring | `src/main.rs` | creates all of the above and starts the threads | once at start |
@@ -152,7 +153,7 @@ Two consequences:
 | reducer | `reducer.execute(...)` | applies actions, presents, pre-renders (layout, display list) |
 | side effects | `main.rs` (`side_effects_rx`) | runs the side effects the actions asked for |
 | evdev | `EvdevService` | reads `/dev/input`, sends touches to the reducer |
-| house link | `house_link::spawn` | the gRPC server (grpcio's own threads) and the heartbeat watchdog; both only send actions |
+| house link | `screen_binder::spawn` | the binder service (binder's thread pool) and the death recipient of the bundle's sink; both only send actions |
 | your own | e.g. the ticker in `main.rs` | anything that produces actions: timers |
 
 Nothing touches the state except the reducer thread. All other threads talk to it only by
@@ -368,7 +369,7 @@ is what happened in the first smarthome run.
 
 ### Step 9: side effects (I/O, SDV, network)
 
-**Files:** the house's data comes in through [`src/house_link.rs`](../src/house_link.rs) (every message from the bridge bundle is an action, `HomeAction::Weather`); the side-effects channel for RPC calls to the bundles is still a stub: [`src/main.rs:72`](../src/main.rs#L72). The pattern: an action pushes `SideEffects::Custom`, a side effects thread in main.rs runs them and sends the results back as actions.
+**Files:** the house's data comes in through [`src/screen_binder.rs`](../src/screen_binder.rs) (every message from the bridge bundle is an action, `HomeAction::Weather`); the side-effects channel for RPC calls to the bundles is still a stub: [`src/main.rs:72`](../src/main.rs#L72). The pattern: an action pushes `SideEffects::Custom`, a side effects thread in main.rs runs them and sends the results back as actions.
 
 An action that needs work outside the state does not do it in `apply`. It asks for it:
 
@@ -416,7 +417,7 @@ The order, as in `smarthome_app`:
 6. `reducer.execute::<UiModelPresenter, _>(looper_tx, LocalDiskFigmaLoader)` starts the reducer
    thread
 7. `Actions::SwapDocument("smarthome")` loads the design
-8. own threads that produce actions: the ticker, the house link server (`house_link::spawn`);
+8. own threads that produce actions: the ticker, the house link service (`screen_binder::spawn`);
    evdev for input
 9. `looper.start()` on the main thread, until exit
 
