@@ -10,7 +10,7 @@ package {
 }
 
 // The panel's browser (src/browser.rs, its zone and its panel) is experimental and built only
-// with everyware's EVERYWARE_BROWSER=true (product/everyware.mk sets Soong's everyware browser):
+// with everyware's EVERYWARE_EXPERIMENTAL_BROWSER=true (product/everyware.mk sets Soong's everyware browser):
 // the cfg browser. Without it the panel has no browser code.
 soong_config_module_type {
     name: "smarthome_app_browser_rust_defaults",

@@ -39,7 +39,7 @@ reboot. The key in `apex/keys/` is a test key of this public repository, as AOSP
 are: a product signs its APEX with a key of its own, never with this one.
 
 Options: `--wayland-zones` serves Wayland clients and shows them in the zones of the design (the
-camera tile and its full view; the game's picture; the browser panel only in a build with the experimental browser, `EVERYWARE_BROWSER=true`, which nothing on the dashboard opens) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
+camera tile and its full view; the game's picture; the browser panel only in a build with the experimental browser, `EVERYWARE_EXPERIMENTAL_BROWSER=true`, which nothing on the dashboard opens) through harry's Wayland bridge; `--zone-fps <n>` caps a client's
 frame rate; `--zone-plane` puts a client on a display plane of its own (a board whose display
 has no planes for that, such as Cuttlefish, turns it off with `ro.vendor.everyware.zone_plane=false`;
 the dashboard then draws the zone, still only on a new client frame); `--zone-redraw
