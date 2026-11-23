@@ -39,6 +39,12 @@ recolours the whole file, the Library's controls too; `design/looks/build.sh <lo
 | `terminal` | a console in one monospaced face |
 | `retro` | a desktop of the nineties: windows, a task bar |
 
+| Window | Poster |
+|---|---|
+| ![The look Window](docs/images/looks-window.png) | ![The look Poster](docs/images/looks-poster.png) |
+| **Terminal** | **Retro** |
+| ![The look Terminal](docs/images/looks-terminal.png) | ![The look Retro](docs/images/looks-retro.png) |
+
 The settings have the row Look (Display): a tap takes the next look. The app keeps the name in
 the file `look` of its override directory, ends in order and its service starts it again with
 `<data_path>/looks/<name>/smarthome.dcf` (`src/config.rs`, `Looks`). A look draws what it
