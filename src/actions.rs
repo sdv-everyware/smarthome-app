@@ -153,6 +153,8 @@ impl StateAction<State, ()> for HomeAction {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
                     state.prefs.open();
+                    // the Look row is a tap away: the next look is read meanwhile
+                    crate::config::read_next_look_ahead();
                 }
             }
             HomeAction::Gesture(node, gesture) if node == "#status/game" && crate::config::game() && !state.device.container.is_open() && !state.wifi.form.is_open() => {
@@ -251,6 +253,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
     let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
     if scrim || (node == "#prefs/close" && clicked(&mut prefs.close, gesture)) {
         prefs.sheet.close();
+        crate::config::forget_look_ahead();
         return;
     }
     if prefs.step() == PrefsStep::TimeZone {
@@ -283,6 +286,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
             if prefs.wifi_row.on(gesture) {
                 // the settings make way for the Wi-Fi sheet, which starts over every time
                 prefs.sheet.close();
+                crate::config::forget_look_ahead();
                 state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone(), state.heights.wifi);
                 screen_binder::send_wifi_command(wifi_scan());
             }

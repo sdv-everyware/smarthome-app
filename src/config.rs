@@ -310,12 +310,92 @@ fn read_from_disk(id: &str) -> Result<Document, Error> {
 /// sizes. The document is kept for harry's next load of this id (`DesignLoader`): parsing is
 /// the cost of a design (15 MB, 28 000 nodes), and the file is parsed once for both.
 pub fn read_design(id: &str) -> Result<Sizes, Error> {
+    let (sizes, document) = load_design(id)?;
+    keep_for_harry(id, document);
+    Ok(sizes)
+}
+
+/// The document `id` and its design's sizes: the one parse.
+fn load_design(id: &str) -> Result<(Sizes, Document), Error> {
     let document = read_from_disk(id)?;
-    let sizes = Sizes::of(&document.1);
+    Ok((Sizes::of(&document.1), document))
+}
+
+fn keep_for_harry(id: &str, document: Document) {
     if let Ok(mut read) = READ.lock() {
         *read = Some((id.to_string(), document));
     }
-    Ok(sizes)
+}
+
+/// A look that is read before it is asked for.
+struct Ahead {
+    look: usize,
+    sizes: Sizes,
+    document: Document,
+}
+
+/// The look after the one in force, read while the settings are open: a tap on the Look row
+/// finds it parsed and the change starts with the swap. The lock is held while the look is
+/// read, so who wants the look waits for the end of a read under way.
+static AHEAD: Mutex<Option<Ahead>> = Mutex::new(None);
+/// The settings are open: a look read ahead is wanted.
+static AHEAD_WANTED: AtomicBool = AtomicBool::new(false);
+
+/// The settings opened: the next look is read on a thread of its own. One document more is in
+/// memory until the settings close.
+pub fn read_next_look_ahead() {
+    AHEAD_WANTED.store(true, Ordering::SeqCst);
+    read_ahead();
+}
+
+/// Reads the look after the one in force ahead, while the settings are open and no change of
+/// the look is under way (a change reads ahead itself when it is done).
+fn read_ahead() {
+    let Some(look) = looks().next() else { return };
+    let spawned = std::thread::Builder::new().name("look-ahead".into()).spawn(move || {
+        let Ok(mut ahead) = AHEAD.lock() else { return };
+        let wanted = AHEAD_WANTED.load(Ordering::SeqCst) && !CHANGING.load(Ordering::SeqCst);
+        if !wanted || ahead.as_ref().is_some_and(|ahead| ahead.look == look) {
+            return;
+        }
+        *ahead = None;
+        let (started, name) = (Instant::now(), &looks().names[look]);
+        match load_design(&looks().document_id(look)) {
+            // the settings closed meanwhile: nobody waits for it
+            Ok(_) if !AHEAD_WANTED.load(Ordering::SeqCst) => {}
+            Ok((sizes, document)) => {
+                *ahead = Some(Ahead { look, sizes, document });
+                log::info!("smarthome: the look {name} read ahead in {} ms", started.elapsed().as_millis());
+            }
+            Err(e) => log::warn!("smarthome: the look {name} cannot be read ahead: {e:?}"),
+        }
+    });
+    if let Err(e) = spawned {
+        log::warn!("smarthome: no thread to read a look ahead: {e}");
+    }
+}
+
+/// The settings closed: the look read ahead goes. On a thread of its own, because freeing a
+/// document takes as long as many frames and the caller is the reducer.
+pub fn forget_look_ahead() {
+    AHEAD_WANTED.store(false, Ordering::SeqCst);
+    let spawned = std::thread::Builder::new().name("look-ahead".into()).spawn(|| {
+        if let Ok(mut ahead) = AHEAD.lock() {
+            // not when the settings opened again and the look is wanted after all
+            if !AHEAD_WANTED.load(Ordering::SeqCst) {
+                *ahead = None;
+            }
+        }
+    });
+    if let Err(e) = spawned {
+        log::warn!("smarthome: no thread to free the look read ahead, it stays: {e}");
+    }
+}
+
+/// The look `look` when it was read ahead; a read under way (one that holds `AHEAD`) is
+/// waited for.
+fn take_ahead(look: usize) -> Option<Ahead> {
+    AHEAD.lock().ok()?.take_if(|ahead| ahead.look == look)
 }
 
 /// Drops a document harry did not ask for (a look that did not get to the screen).
@@ -358,6 +438,8 @@ static SEND_LOOK: OnceLock<Box<dyn Fn(usize) + Send + Sync>> = OnceLock::new();
 static NEW_LOOK: Mutex<Option<NewLook>> = Mutex::new(None);
 /// A change of the look is under way: a tap on the row does nothing until its end.
 static CHANGING: AtomicBool = AtomicBool::new(false);
+/// How many changes of the look were started.
+static CHANGES: AtomicUsize = AtomicUsize::new(0);
 
 pub fn set_look_sender(send: impl Fn(usize) + Send + Sync + 'static) {
     let _ = SEND_LOOK.set(Box::new(send));
@@ -380,34 +462,40 @@ pub fn change_look(look: usize) {
     if CHANGING.swap(true, Ordering::SeqCst) {
         return;
     }
+    let change = CHANGES.fetch_add(1, Ordering::SeqCst) + 1;
     let spawned = std::thread::Builder::new().name("look".into()).spawn(move || {
         let looks = looks();
         let started = Instant::now();
         let count = looks.names.len();
-        // from `look` on, around, up to the look in force
-        let read = (0..count).map(|step| (look + step) % count).take_while(|look| *look != looks.current()).find_map(
-            |look| match read_design(&looks.document_id(look)) {
-                Ok(sizes) => Some((look, sizes)),
-                Err(e) => {
-                    log::warn!("smarthome: the look {} cannot be read: {e:?}", looks.names[look]);
-                    None
+        // the look that was read ahead, or from `look` on, around, up to the look in force
+        let ahead = take_ahead(look).map(|ahead| {
+            keep_for_harry(&looks.document_id(look), ahead.document);
+            (look, ahead.sizes)
+        });
+        let was_ahead = ahead.is_some();
+        let read = ahead.or_else(|| {
+            (0..count).map(|step| (look + step) % count).take_while(|look| *look != looks.current()).find_map(|look| {
+                match read_design(&looks.document_id(look)) {
+                    Ok(sizes) => Some((look, sizes)),
+                    Err(e) => {
+                        log::warn!("smarthome: the look {} cannot be read: {e:?}", looks.names[look]);
+                        None
+                    }
                 }
-            },
-        );
+            })
+        });
         if let Some((look, sizes)) = read {
             let name = &looks.names[look];
-            let read = started.elapsed();
+            let read = if was_ahead { "ahead".to_string() } else { format!("in {} ms", started.elapsed().as_millis()) };
             let (responder, answer) = ChannelResponder::create_with_receiver();
             if let Ok(mut new) = NEW_LOOK.lock() {
                 *new = Some(NewLook { look, sizes, responder });
             }
             send(look);
             match answer.recv_timeout(LOOK_TIMEOUT) {
-                Ok(GenericResponse::Ok) => log::info!(
-                    "smarthome: the look {name} in {} ms (its document read in {} ms)",
-                    started.elapsed().as_millis(),
-                    read.as_millis()
-                ),
+                Ok(GenericResponse::Ok) => {
+                    log::info!("smarthome: the look {name} in {} ms (its document read {read})", started.elapsed().as_millis());
+                }
                 other => {
                     // nobody is to take what is left of it later
                     drop(take_new_look(look));
@@ -417,12 +505,23 @@ pub fn change_look(look: usize) {
             }
         }
         CHANGING.store(false, Ordering::SeqCst);
+        // The settings are still open: the look after the one now in force is read ahead, once
+        // harry has drawn the new look (a read beside that first frame made it later), and only
+        // when no other change came meanwhile: that one reads ahead after itself.
+        std::thread::sleep(AHEAD_PAUSE);
+        if CHANGES.load(Ordering::SeqCst) == change {
+            read_ahead();
+        }
     });
     if let Err(e) = spawned {
         log::warn!("smarthome: no thread for the look: {e}");
         CHANGING.store(false, Ordering::SeqCst);
     }
 }
+
+/// How long a changed look has for its first frame before the next one is read ahead: on the
+/// RB3 that frame comes 0.6 to 0.75 s after the swap, and 0.15 s later with a read beside it.
+const AHEAD_PAUSE: Duration = Duration::from_secs(1);
 
 /// How long harry may take to load a look's document.
 const LOOK_TIMEOUT: Duration = Duration::from_secs(10);
