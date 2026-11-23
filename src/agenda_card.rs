@@ -649,6 +649,16 @@ impl AgendaCard {
         }
     }
 
+    /// Another design: the list `list_h` high and the event's body `body_h`. The agenda stays,
+    /// the list is at its top again and an open event's panel is closed. A command on its way
+    /// keeps waiting for its answer, and what the panel still has to say stays.
+    pub fn resize(&mut self, list_h: f32, body_h: f32, zone: &str, hour24: bool, now: Timestamp) {
+        self.list = ListView::new([], list_h, agenda::ROW_PITCH);
+        let before = std::mem::replace(&mut self.event, EventPanel::new(body_h));
+        (self.event.pending, self.event.sent_answer, self.event.missed) = (before.pending, before.sent_answer, before.missed);
+        self.refresh(zone, hour24, now);
+    }
+
     /// Whether a calendar is linked (the header's button shows).
     pub fn linked(&self) -> bool {
         self.agenda.as_ref().is_some_and(|a| a.link.enum_value() == Ok(CalendarLink::CALENDAR_CONNECTED))

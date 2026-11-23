@@ -81,20 +81,33 @@ impl State {
     /// design's sizes.
     pub fn new(sizes: Sizes) -> Self {
         let prefs = PrefsSheet { about: about(), timezone: system_time_zone(), ..Default::default() };
-        let heights = ListHeights::of(&sizes);
-        let mut state = State { prefs, sizes, heights, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
+        let mut state = State { prefs, tabs: Tabs::new(SCREENS.map(|(label, _)| label)), ..Default::default() };
         #[cfg(browser)]
         {
             state.panel = Sheet::new(PANEL_LAYOUT);
         }
-        state.agenda = crate::agenda_card::AgendaCard::new(heights.agenda, heights.event_body, agenda_measure(), crate::zones::time_zone);
-        // a design with the camera live on its screen: the camera app stays in live video
-        if state.sizes.frame("#camera/live-feed").is_some() {
-            state.camera.always_live = true;
-            crate::camera::set_live(true);
-        }
-        state.prefs.build_zones(heights.zones);
+        state.agenda = crate::agenda_card::AgendaCard::new(0.0, 0.0, agenda_measure(), crate::zones::time_zone);
+        state.set_design(sizes);
         state
+    }
+
+    /// Takes a design's sizes: at the start, and when the look changes while the panel runs
+    /// (config.rs change_look). What the state holds of the house stays; what is as high as
+    /// the design draws it starts over at that height.
+    pub fn set_design(&mut self, sizes: Sizes) {
+        let heights = ListHeights::of(&sizes);
+        (self.sizes, self.heights) = (sizes, heights);
+        self.agenda.resize(heights.agenda, heights.event_body, &self.prefs.timezone, self.prefs.hour24.value, jiff::Timestamp::now());
+        self.prefs.resize_zones(heights.zones);
+        // a design with the camera live on its screen: the camera app stays in live video;
+        // without it the camera is back to stills, unless its full view is open
+        let live = self.sizes.frame("#camera/live-feed").is_some();
+        if live != self.camera.always_live {
+            self.camera.always_live = live;
+            if live || !self.camera.is_open() {
+                crate::camera::set_live(live);
+            }
+        }
     }
 }
 
@@ -274,6 +287,15 @@ impl PrefsSheet {
     /// RB3), which cut the slide's start off.
     pub fn build_zones(&mut self, height: f32) {
         self.zones = crate::zones::zones();
+        self.zone_list = ListView::new(zone_rows(&self.zones), height, ZONE_PITCH);
+        self.mark_zone();
+    }
+
+    /// Another design: the list as high as that one draws it, with the zones read before.
+    pub fn resize_zones(&mut self, height: f32) {
+        if self.zones.list.is_empty() {
+            return self.build_zones(height);
+        }
         self.zone_list = ListView::new(zone_rows(&self.zones), height, ZONE_PITCH);
         self.mark_zone();
     }

@@ -40,6 +40,8 @@ rust_binary {
     rustlibs: [
         "libclap",
         "libcustomizations",
+        // the document's types: the loader that takes a look's document (config.rs)
+        "libdc_bundle",
         // --wayland-zones: the Wayland bridge that shows other harry processes in zone
         // nodes (har-gl-context/src/wayland_bridge)
         "libhar_gl_context",

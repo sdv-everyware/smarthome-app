@@ -21,9 +21,7 @@ use har_platform_api::graphics::FontInfo;
 use har_platform_api::looper::{create_resource_manager_client, DisplayId, LayoutHelperManager, Looper, LooperOptions};
 use har_user_input_evdev::EvdevService;
 use harry::reducer::{Actions, DefaultReducer, InputDispatcherCallback};
-use harry_app_utils::document_loader::{
-    LocalDiskFigmaLoader, ShutdownOnGenericErrorResponseHandler,
-};
+use harry_app_utils::document_loader::ShutdownOnGenericErrorResponseHandler;
 use harry_app_utils::layout_helper::HarLayoutHelperManager;
 use std::sync::mpsc::channel;
 use std::sync::Arc;
@@ -91,19 +89,18 @@ fn main() {
         displays.iter().map(|display| (display.id, display.root_node_id.clone())).collect();
     let (actions_tx, actions_rx) = channel();
     // The design's sizes (a dialog's card hugs its content: the app needs the content's height
-    // to put the card in the middle), from the document harry loads: the override's copy wins.
+    // to put the card in the middle), from the document harry draws: the override's copy wins.
+    // The document is read here once and waits for harry (config::DesignLoader).
     let sizes = {
-        let dcf = args.document_id.clone();
-        let overridden = args.override_path.as_ref().map(|p| std::path::Path::new(p).join(&dcf)).filter(|p| p.exists());
-        let path = overridden.unwrap_or_else(|| std::path::Path::new(&args.data_path).join(&dcf));
+        let path = config::looks().path_of(&args.document_id);
         let started = std::time::Instant::now();
-        match everyware_ui::design::Sizes::load(&path) {
+        match config::read_design(&args.document_id) {
             Ok(sizes) => {
-                log::info!("smarthome: {} variant sizes from {} in {} ms", sizes.len(), path.display(), started.elapsed().as_millis());
+                log::info!("smarthome: the design {} read in {} ms, {} variant sizes", path.display(), started.elapsed().as_millis(), sizes.len());
                 sizes
             }
             Err(e) => {
-                log::warn!("smarthome: no design sizes ({e}): the sheets keep their default geometry");
+                log::warn!("smarthome: no design sizes ({e:?}): the sheets keep their default geometry");
                 everyware_ui::design::Sizes::none()
             }
         }
@@ -148,10 +145,7 @@ fn main() {
     // looper's channel, which holds the display lists until the looper starts. Before, the
     // two ran one after the other (create_looper, then the document): about 0.5 s of the
     // boot to the first frame (tools/boot-time).
-    let document_dir = args.document_dir();
-    log::info!("smarthome: the design from {document_dir}");
-    let document_loader = LocalDiskFigmaLoader::new(document_dir);
-    let reducer_thread = reducer.execute::<UiModelPresenter, _>(looper_tx.clone(), document_loader);
+    let reducer_thread = reducer.execute::<UiModelPresenter, _>(looper_tx.clone(), config::DesignLoader);
 
     let (responder, doc_load_response_rx) = ChannelResponder::create_with_receiver();
     actions
@@ -175,16 +169,13 @@ fn main() {
             Err(e) => log::warn!("smarthome: no first frame of '{document_id}': {e:?}"),
         });
     }
-    // The settings change the look by starting the panel again (config.rs Looks). That is an
-    // orderly end: the reducer and the looper stop and the GPU context is released, as when
-    // the document cannot be loaded. An exit in the middle of a frame leaves the GPU's
-    // command stream cut off.
+    // The settings change the look while the panel runs (config.rs change_look): the look's
+    // sizes are read on a thread of their own, then the reducer hears of it here.
     {
-        let stop = std::sync::Mutex::new((actions.clone(), looper_tx.clone()));
-        config::set_quit(move || {
-            if let Ok(stop) = stop.lock() {
-                let _ = stop.0.send(Actions::Exit);
-                let _ = stop.1.send(har_platform_api::looper::LooperMessage::Exit);
+        let actions = std::sync::Mutex::new(actions.clone());
+        config::set_look_sender(move |look| {
+            if let Ok(actions) = actions.lock() {
+                let _ = actions.send(Actions::CustomAction(HomeAction::Look(look)));
             }
         });
     }

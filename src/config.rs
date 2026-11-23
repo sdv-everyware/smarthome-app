@@ -4,9 +4,20 @@
 
 use clap::Parser as _;
 use clap_derive::Parser;
+use dc_bundle::design_compose_definition::{DesignComposeDefinition, DesignComposeDefinitionHeader};
+use everyware_ui::design::Sizes;
+use har_platform_api::commlib::api::GenericResponse;
+use har_platform_api::commlib::responder::ChannelResponder;
+use har_platform_api::error::Error;
 use har_platform_api::looper::DisplayId;
 use har_types::color_format::ColorFormat;
+use harry::state::FigmaDocumentLoader;
+use harry_app_utils::document_loader::LocalDiskFigmaLoader;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Root frame of the Figma design (1920x1080, the RB3's HDMI mode).
 pub const ROOT_NODE: &str = "#smarthome-root";
@@ -163,17 +174,6 @@ pub fn parse_size(s: &str) -> Option<(u32, u32)> {
     Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
 }
 
-impl CommandLineArgs {
-    /// The directory the document is loaded from: the override when it holds the document,
-    /// else data_path.
-    pub fn document_dir(&self) -> String {
-        match &self.override_path {
-            Some(dir) if std::path::Path::new(dir).join(&self.document_id).is_file() => dir.clone(),
-            _ => self.data_path.clone(),
-        }
-    }
-}
-
 pub fn get_commandline_args() -> CommandLineArgs {
     let mut args = CommandLineArgs::parse();
     // the file name harry opens: <name>.dcf, also when the name came without the extension
@@ -182,46 +182,36 @@ pub fn get_commandline_args() -> CommandLineArgs {
     args
 }
 
-/// How the panel ends in order (main.rs sets it): the reducer and the looper stop.
-static QUIT: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
-
-pub fn set_quit(quit: impl Fn() + Send + Sync + 'static) {
-    let _ = QUIT.set(Box::new(quit));
-}
-
-/// Ends the panel in order; its service starts it again.
-pub fn quit() {
-    match QUIT.get() {
-        Some(quit) => quit(),
-        None => log::warn!("smarthome: no way to end in order yet"),
-    }
-}
-
 /// The first look: the design in data_path itself.
 pub const CLASSIC: &str = "classic";
 
 /// The looks of the panel: other screens for the same app (design/looks), each a document of
-/// its own in `<data_path>/looks/<name>/`. The one in force is named in the file `look` of the
-/// override directory (the panel's writable directory); the settings write it (`set_look`) and
-/// the panel starts again with it.
+/// its own in `<data_path>/looks/<name>/`. The settings take the next one (`change_look`): the
+/// running panel swaps its document for that look's, and the file `look` of the override
+/// directory (the panel's writable directory) names it for the next start.
 #[derive(Debug, Default)]
 pub struct Looks {
     /// "classic" first, then the directories of `<data_path>/looks` that hold the document.
     pub names: Vec<String>,
     /// The look in force, an index into `names`.
-    pub current: usize,
+    current: AtomicUsize,
+    /// The document's file name, the same in every look's directory (`smarthome.dcf`).
+    document: String,
+    /// Where the documents are: data_path, and the override directory that is checked first.
+    data_path: String,
+    override_path: Option<String>,
     /// Where the choice is kept; None: nowhere (no override directory), the look cannot change.
-    file: Option<std::path::PathBuf>,
+    file: Option<PathBuf>,
 }
 
-static LOOKS: std::sync::OnceLock<Looks> = std::sync::OnceLock::new();
+static LOOKS: OnceLock<Looks> = OnceLock::new();
 
 pub fn looks() -> &'static Looks {
     LOOKS.get_or_init(Looks::default)
 }
 
 /// The names of the looks under `dir` (a look: a directory with the document), sorted.
-fn looks_in(dir: &std::path::Path, document: &str) -> Vec<String> {
+fn looks_in(dir: &Path, document: &str) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -233,38 +223,206 @@ fn looks_in(dir: &std::path::Path, document: &str) -> Vec<String> {
     names
 }
 
-/// Points the arguments at the document of the look in force. A look other than the first
-/// has no override: the override directory holds a test copy of the first one.
+/// Finds the looks and points the arguments at the document of the one in force.
 fn choose_document(args: &mut CommandLineArgs) {
-    let looks_dir = std::path::Path::new(&args.data_path).join("looks");
     let mut names = vec![CLASSIC.to_string()];
-    names.extend(looks_in(&looks_dir, &args.document_id));
-    let file = args.override_path.as_ref().map(|p| std::path::Path::new(p).join("look"));
+    names.extend(looks_in(&Path::new(&args.data_path).join("looks"), &args.document_id));
+    let file = args.override_path.as_ref().map(|p| Path::new(p).join("look"));
     let chosen = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).unwrap_or_default();
     let current = names.iter().position(|n| *n == chosen).unwrap_or(0);
-    if current > 0 {
-        args.data_path = looks_dir.join(&names[current]).to_string_lossy().into_owned();
-        args.override_path = None;
-    }
-    let _ = LOOKS.set(Looks { names, current, file });
+    let looks = Looks {
+        names,
+        current: AtomicUsize::new(current),
+        document: args.document_id.clone(),
+        data_path: args.data_path.clone(),
+        override_path: args.override_path.clone(),
+        file,
+    };
+    args.document_id = looks.document_id(current);
+    let _ = LOOKS.set(looks);
 }
 
 impl Looks {
-    /// The look after the one in force, around.
-    pub fn next(&self) -> Option<&str> {
-        (self.names.len() > 1 && self.file.is_some()).then(|| self.names[(self.current + 1) % self.names.len()].as_str())
+    /// The look in force.
+    pub fn current(&self) -> usize {
+        self.current.load(Ordering::SeqCst)
+    }
+
+    /// The look after the one in force, around; None when the look cannot change.
+    pub fn next(&self) -> Option<usize> {
+        (self.names.len() > 1 && self.file.is_some()).then(|| (self.current() + 1) % self.names.len())
     }
 
     /// The name of the look in force as the settings show it: "Classic".
     pub fn label(&self) -> String {
-        let name = self.names.get(self.current).map_or(CLASSIC, |n| n.as_str());
+        let name = self.names.get(self.current()).map_or(CLASSIC, |n| n.as_str());
         let mut chars = name.chars();
         chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
     }
 
-    /// Keeps `name` as the look for the next start.
-    pub fn set_look(&self, name: &str) -> std::io::Result<()> {
-        let file = self.file.as_ref().ok_or_else(|| std::io::Error::other("no directory for the choice"))?;
-        std::fs::write(file, format!("{name}\n"))
+    /// The document of `look` as harry names it: the file's path under the directory it is
+    /// loaded from (`smarthome.dcf`, `looks/poster/smarthome.dcf`).
+    pub fn document_id(&self, look: usize) -> String {
+        match self.names.get(look) {
+            Some(name) if look > 0 => format!("looks/{name}/{}", self.document),
+            _ => self.document.clone(),
+        }
+    }
+
+    /// The directory the document `id` is loaded from: the override when it holds a copy (a
+    /// design pushed to the device for a test, over the one in the APEX), else data_path.
+    fn dir_of(&self, id: &str) -> &str {
+        match &self.override_path {
+            Some(dir) if Path::new(dir).join(id).is_file() => dir,
+            _ => &self.data_path,
+        }
+    }
+
+    /// The file of the document `id`.
+    pub fn path_of(&self, id: &str) -> PathBuf {
+        Path::new(self.dir_of(id)).join(id)
+    }
+
+    /// `look` is in force from now on, and at the next start.
+    pub fn set_current(&self, look: usize) {
+        self.current.store(look, Ordering::SeqCst);
+        let kept = match (&self.file, self.names.get(look)) {
+            (Some(file), Some(name)) => std::fs::write(file, format!("{name}\n")),
+            _ => Ok(()),
+        };
+        if let Err(e) = kept {
+            log::warn!("smarthome: the look is not kept for the next start: {e}");
+        }
     }
 }
+
+/// A document as harry takes it from a loader.
+type Document = (DesignComposeDefinitionHeader, DesignComposeDefinition);
+
+/// The document the app read for its sizes, by its id, until harry asks for it.
+static READ: Mutex<Option<(String, Document)>> = Mutex::new(None);
+
+fn read_from_disk(id: &str) -> Result<Document, Error> {
+    LocalDiskFigmaLoader::new(looks().dir_of(id).to_string()).load_document(id)
+}
+
+/// Reads the document `id` from the directory `Looks::dir_of` names and gives the design's
+/// sizes. The document is kept for harry's next load of this id (`DesignLoader`): parsing is
+/// the cost of a design (15 MB, 28 000 nodes), and the file is parsed once for both.
+pub fn read_design(id: &str) -> Result<Sizes, Error> {
+    let document = read_from_disk(id)?;
+    let sizes = Sizes::of(&document.1);
+    if let Ok(mut read) = READ.lock() {
+        *read = Some((id.to_string(), document));
+    }
+    Ok(sizes)
+}
+
+/// Drops a document harry did not ask for (a look that did not get to the screen).
+fn forget_design() {
+    if let Ok(mut read) = READ.lock() {
+        *read = None;
+    }
+}
+
+/// Hands harry the document `read_design` read; a document the app did not read (or one
+/// harry asks for a second time) comes from the disk.
+pub struct DesignLoader;
+
+impl FigmaDocumentLoader for DesignLoader {
+    fn load_document(&self, id: &str) -> Result<Document, Error> {
+        let read = READ.lock().ok().and_then(|mut read| read.take_if(|(read, _)| read == id));
+        match read {
+            Some((_, document)) => Ok(document),
+            None => read_from_disk(id),
+        }
+    }
+
+    fn save_document(&self, id: &str, header: &DesignComposeDefinitionHeader, doc: &DesignComposeDefinition) -> Result<(), Error> {
+        LocalDiskFigmaLoader::new(looks().dir_of(id).to_string()).save_document(id, header, doc)
+    }
+}
+
+/// A look on its way to the screen: its document is read, the reducer takes the design's
+/// sizes with the action `HomeAction::Look` and asks harry for the document.
+pub struct NewLook {
+    pub look: usize,
+    pub sizes: Sizes,
+    /// Where harry answers the document swap; `change_look` waits for it.
+    pub responder: ChannelResponder<GenericResponse>,
+}
+
+/// How a look gets to the reducer (main.rs sets it: the reducer's actions).
+static SEND_LOOK: OnceLock<Box<dyn Fn(usize) + Send + Sync>> = OnceLock::new();
+/// The look that is read and waits for the reducer.
+static NEW_LOOK: Mutex<Option<NewLook>> = Mutex::new(None);
+/// A change of the look is under way: a tap on the row does nothing until its end.
+static CHANGING: AtomicBool = AtomicBool::new(false);
+
+pub fn set_look_sender(send: impl Fn(usize) + Send + Sync + 'static) {
+    let _ = SEND_LOOK.set(Box::new(send));
+}
+
+/// The look the reducer was told about (`HomeAction::Look`), once.
+pub fn take_new_look(look: usize) -> Option<NewLook> {
+    let mut new = NEW_LOOK.lock().ok()?;
+    new.take_if(|new| new.look == look)
+}
+
+/// Changes the look of the running panel to `look`, off the reducer's thread: the document is
+/// read first (the panel keeps drawing the look in force), then the reducer takes its sizes and
+/// harry swaps to the document that was read. Nothing starts again: the zones' clients and the
+/// links to the bundles stay, and so does the state that does not hang on the design's sizes.
+/// A look whose document cannot be read is passed over for the one after it, so one broken
+/// file does not end the round.
+pub fn change_look(look: usize) {
+    let Some(send) = SEND_LOOK.get() else { return };
+    if CHANGING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = std::thread::Builder::new().name("look".into()).spawn(move || {
+        let looks = looks();
+        let started = Instant::now();
+        let count = looks.names.len();
+        // from `look` on, around, up to the look in force
+        let read = (0..count).map(|step| (look + step) % count).take_while(|look| *look != looks.current()).find_map(
+            |look| match read_design(&looks.document_id(look)) {
+                Ok(sizes) => Some((look, sizes)),
+                Err(e) => {
+                    log::warn!("smarthome: the look {} cannot be read: {e:?}", looks.names[look]);
+                    None
+                }
+            },
+        );
+        if let Some((look, sizes)) = read {
+            let name = &looks.names[look];
+            let read = started.elapsed();
+            let (responder, answer) = ChannelResponder::create_with_receiver();
+            if let Ok(mut new) = NEW_LOOK.lock() {
+                *new = Some(NewLook { look, sizes, responder });
+            }
+            send(look);
+            match answer.recv_timeout(LOOK_TIMEOUT) {
+                Ok(GenericResponse::Ok) => log::info!(
+                    "smarthome: the look {name} in {} ms (its document read in {} ms)",
+                    started.elapsed().as_millis(),
+                    read.as_millis()
+                ),
+                other => {
+                    // nobody is to take what is left of it later
+                    drop(take_new_look(look));
+                    forget_design();
+                    log::warn!("smarthome: the look {name}: no document from harry ({other:?})")
+                }
+            }
+        }
+        CHANGING.store(false, Ordering::SeqCst);
+    });
+    if let Err(e) = spawned {
+        log::warn!("smarthome: no thread for the look: {e}");
+        CHANGING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// How long harry may take to load a look's document.
+const LOOK_TIMEOUT: Duration = Duration::from_secs(10);

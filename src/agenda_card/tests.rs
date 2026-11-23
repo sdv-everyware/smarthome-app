@@ -144,6 +144,34 @@ fn a_new_agenda_never_scrolls_the_list() {
 }
 
 #[test]
+fn another_design_keeps_the_agenda_at_its_own_heights() {
+    let mut c = card();
+    let now = at("2026-11-10T08:00:00Z");
+    c.set(linked(vec![event("a", "2026-11-10T09:00:00Z", 30), event("b", "2026-11-11T09:00:00Z", 30)]), "UTC", true, now);
+    let t = Instant::now();
+    c.on_list(Some(1), Gesture::down(0.0, 10.0), t);
+    c.on_list(Some(1), Gesture::up(0.0, 10.0), t);
+    assert!(c.event.is_open());
+    let rows = titles(&c);
+    c.resize(250.0, 300.0, "UTC", true, now);
+    assert_eq!(titles(&c), rows, "the agenda stays");
+    assert_eq!((c.list.view_h(), c.event.body.view_h()), (250.0, 300.0));
+    assert!(!c.event.is_open(), "the panel of the other design is closed");
+    assert_eq!(c.event_of_row(1), Some(0), "a tap still finds its event");
+}
+
+#[test]
+fn another_design_keeps_a_command_on_its_way() {
+    let mut c = opened(invitation());
+    press(&mut c, "#event/rsvp/#segmented/segment-3").expect("a command");
+    c.resize(250.0, 300.0, "UTC", true, at("2026-11-10T08:00:00Z"));
+    assert!(c.event.pending.is_some() && !c.event.is_open());
+    // its answer still ends the wait, and a failure is kept for the panel's next opening
+    c.event.answered(&answer("respond", "inv_20261110T090000Z", Some(CalendarFailure::CALENDAR_FAILURE_READ_ONLY)), Instant::now());
+    assert!(c.event.pending.is_none());
+}
+
+#[test]
 fn a_tap_on_an_event_opens_its_panel_and_a_subheader_nothing() {
     let mut c = card();
     let now = at("2026-11-10T08:00:00Z");
