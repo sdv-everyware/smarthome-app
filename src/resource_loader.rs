@@ -13,6 +13,11 @@ const INTER_BOLD: &[u8] = include_bytes!("../data/inter_bold.otf");
 /// IBM Plex Mono Regular (github.com/IBM/plex, SIL OFL 1.1: data/ibm_plex_mono_LICENSE.txt):
 /// the clock's digits.
 const PLEX_MONO_REGULAR: &[u8] = include_bytes!("../data/ibm_plex_mono_regular.otf");
+const INTER_BLACK: &[u8] = include_bytes!("../data/inter_black.otf");
+// the headline face of the look "Poster" (Big Shoulders Display, SIL OFL 1.1: two weights cut
+// from the variable font, data/big_shoulders_display_LICENSE.txt)
+const SHOULDERS_BLACK: &[u8] = include_bytes!("../data/big_shoulders_display_black.ttf");
+const SHOULDERS_MEDIUM: &[u8] = include_bytes!("../data/big_shoulders_display_medium.ttf");
 
 /// (family, weight, file) for every face the design uses (Figma file "Smart HOme": Inter
 /// 400/500/600, IBM Plex Mono 400). Inter 500/600 are not in the tree yet: until their files
@@ -22,6 +27,9 @@ pub const FONTS: &[(&str, u16, &[u8])] = &[
     ("Inter", 500, INTER_REGULAR),
     ("Inter", 600, INTER_BOLD),
     ("IBM Plex Mono", 400, PLEX_MONO_REGULAR),
+    ("Inter", 900, INTER_BLACK),
+    ("Big Shoulders Display", 900, SHOULDERS_BLACK),
+    ("Big Shoulders Display", 500, SHOULDERS_MEDIUM),
 ];
 
 #[derive(Default)]

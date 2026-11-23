@@ -178,5 +178,93 @@ pub fn get_commandline_args() -> CommandLineArgs {
     let mut args = CommandLineArgs::parse();
     // the file name harry opens: <name>.dcf, also when the name came without the extension
     args.document_id = everyware_ui::design::document_file(&args.document_id);
+    choose_document(&mut args);
     args
+}
+
+/// How the panel ends in order (main.rs sets it): the reducer and the looper stop.
+static QUIT: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
+pub fn set_quit(quit: impl Fn() + Send + Sync + 'static) {
+    let _ = QUIT.set(Box::new(quit));
+}
+
+/// Ends the panel in order; its service starts it again.
+pub fn quit() {
+    match QUIT.get() {
+        Some(quit) => quit(),
+        None => log::warn!("smarthome: no way to end in order yet"),
+    }
+}
+
+/// The first look: the design in data_path itself.
+pub const CLASSIC: &str = "classic";
+
+/// The looks of the panel: other screens for the same app (design/looks), each a document of
+/// its own in `<data_path>/looks/<name>/`. The one in force is named in the file `look` of the
+/// override directory (the panel's writable directory); the settings write it (`set_look`) and
+/// the panel starts again with it.
+#[derive(Debug, Default)]
+pub struct Looks {
+    /// "classic" first, then the directories of `<data_path>/looks` that hold the document.
+    pub names: Vec<String>,
+    /// The look in force, an index into `names`.
+    pub current: usize,
+    /// Where the choice is kept; None: nowhere (no override directory), the look cannot change.
+    file: Option<std::path::PathBuf>,
+}
+
+static LOOKS: std::sync::OnceLock<Looks> = std::sync::OnceLock::new();
+
+pub fn looks() -> &'static Looks {
+    LOOKS.get_or_init(Looks::default)
+}
+
+/// The names of the looks under `dir` (a look: a directory with the document), sorted.
+fn looks_in(dir: &std::path::Path, document: &str) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.path().join(document).is_file())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Points the arguments at the document of the look in force. A look other than the first
+/// has no override: the override directory holds a test copy of the first one.
+fn choose_document(args: &mut CommandLineArgs) {
+    let looks_dir = std::path::Path::new(&args.data_path).join("looks");
+    let mut names = vec![CLASSIC.to_string()];
+    names.extend(looks_in(&looks_dir, &args.document_id));
+    let file = args.override_path.as_ref().map(|p| std::path::Path::new(p).join("look"));
+    let chosen = file.as_ref().and_then(|f| std::fs::read_to_string(f).ok()).map(|s| s.trim().to_string()).unwrap_or_default();
+    let current = names.iter().position(|n| *n == chosen).unwrap_or(0);
+    if current > 0 {
+        args.data_path = looks_dir.join(&names[current]).to_string_lossy().into_owned();
+        args.override_path = None;
+    }
+    let _ = LOOKS.set(Looks { names, current, file });
+}
+
+impl Looks {
+    /// The look after the one in force, around.
+    pub fn next(&self) -> Option<&str> {
+        (self.names.len() > 1 && self.file.is_some()).then(|| self.names[(self.current + 1) % self.names.len()].as_str())
+    }
+
+    /// The name of the look in force as the settings show it: "Classic".
+    pub fn label(&self) -> String {
+        let name = self.names.get(self.current).map_or(CLASSIC, |n| n.as_str());
+        let mut chars = name.chars();
+        chars.next().map_or_else(String::new, |c| c.to_uppercase().chain(chars).collect())
+    }
+
+    /// Keeps `name` as the look for the next start.
+    pub fn set_look(&self, name: &str) -> std::io::Result<()> {
+        let file = self.file.as_ref().ok_or_else(|| std::io::Error::other("no directory for the choice"))?;
+        std::fs::write(file, format!("{name}\n"))
+    }
 }

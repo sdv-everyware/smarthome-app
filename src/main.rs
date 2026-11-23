@@ -175,6 +175,19 @@ fn main() {
             Err(e) => log::warn!("smarthome: no first frame of '{document_id}': {e:?}"),
         });
     }
+    // The settings change the look by starting the panel again (config.rs Looks). That is an
+    // orderly end: the reducer and the looper stop and the GPU context is released, as when
+    // the document cannot be loaded. An exit in the middle of a frame leaves the GPU's
+    // command stream cut off.
+    {
+        let stop = std::sync::Mutex::new((actions.clone(), looper_tx.clone()));
+        config::set_quit(move || {
+            if let Ok(stop) = stop.lock() {
+                let _ = stop.0.send(Actions::Exit);
+                let _ = stop.1.send(har_platform_api::looper::LooperMessage::Exit);
+            }
+        });
+    }
     // Exit if the document cannot be loaded.
     let _document_load_monitor = ResponseMonitorThread::new(
         doc_load_response_rx,

@@ -91,8 +91,18 @@ module.exports = function patch(msg, helpers) {
     text(card, '#device/subtitle', 64, 34, 700, 20, 'Thermostat · EveryWare Virtual Home', 15, FONT.regular, C.ink2);
     slotted(card, '#device/close', CONTENT_W - close.size.x + 12, -16, close);
     // the state, large: what the device does now
-    text(card, '#device/state', 0, 72, 900, 56, '21.4 °C', 44, FONT.medium, C.ink);
+    text(card, '#device/state', 0, 72, 600, 56, '21.4 °C', 44, FONT.medium, C.ink);
     text(card, '#device/state-detail', 0, 132, 1000, 24, 'Heating to 22.0 °C · 45 % humidity', 17, FONT.regular, C.ink2);
+    // the device's control, at the right of its state: the dashboard's own component in a
+    // second slot. All five lie here; the app shows the one of the sheet's device (a thermostat
+    // has two, minus and plus)
+    const control = (name, v, dx = 0) => slotted(card, name, CONTENT_W - v.size.x - dx, 72 + (56 - v.size.y) / 2, v);
+    const plus = variantOf('#icon-button', 'kind=tonal, state=default, icon=plus, size=regular');
+    control('#device/light', variantOf('#toggle', 'state=default'));
+    control('#device/dimmer', variantOf('#slider', 'state=default'));
+    control('#device/fan', variantOf('#segmented', 'segments=3, state=default'));
+    control('#device/plus', plus);
+    control('#device/minus', variantOf('#icon-button', 'kind=tonal, state=default, icon=minus, size=regular'), plus.size.x + 8);
     // the details: State (what the device reports about its function) and Device (what it is)
     text(card, 'State label', 0, 184, 300, 20, 'State', 15, FONT.regular, C.ink2);
     text(card, 'Device label', COL2_X, 184, 300, 20, 'Device', 15, FONT.regular, C.ink2);

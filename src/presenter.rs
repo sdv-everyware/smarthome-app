@@ -8,6 +8,7 @@ use customizations::render_customizations::DisplayState;
 use everyware_ui::{list, scrollbar, slot, slot_shown, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
 use crate::weather::{bars, words, Picture};
 use crate::agenda_card::{EventStep, EVENT_EFFECT};
+use crate::devices::DeviceId;
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
 use everyware_ui::dock::KEYBOARD_DOCK_H;
 use crate::ui_model::UiModel;
@@ -21,6 +22,8 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.date = state.clock.date.clone();
         model.time = state.clock.time_text(state.prefs.hour24.value);
         model.sec = state.clock.sec_text(state.prefs.hour24.value);
+        model.hours = state.clock.hours_text(state.prefs.hour24.value);
+        model.minutes = state.clock.minutes_text();
 
         // dashboard: each control in its slot
         let d = &state.dash;
@@ -113,6 +116,18 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.device_info_list = list("#device/info-list", &device.info_list);
         model.device_info_scrollbar = scrollbar("#device/info-list-scrollbar", &device.info_list);
         model.device_more = slot("#device/more", &device.more);
+        // the device's control: the dashboard's component, shown for the sheet's device only
+        let of = |id: DeviceId| if device.device == id { DisplayState::Visible } else { DisplayState::Gone };
+        model.device_light = slot("#device/light", &state.dash.light);
+        model.device_light_shown = of(DeviceId::Entryway);
+        model.device_dimmer = slot("#device/dimmer", &state.dash.dimmer);
+        model.device_dimmer_shown = of(DeviceId::Bedroom);
+        model.device_fan = slot("#device/fan", &state.dash.fan);
+        model.device_fan_shown = of(DeviceId::OfficeFan);
+        model.device_minus = slot("#device/minus", &state.dash.temp_minus);
+        model.device_minus_shown = of(DeviceId::Climate);
+        model.device_plus = slot("#device/plus", &state.dash.temp_plus);
+        model.device_plus_shown = of(DeviceId::Climate);
 
         #[cfg(browser)]
         present_browser(model, state, free_height);
@@ -141,6 +156,7 @@ impl Presenter<State, UiModel> for UiModelPresenter {
             Some(link) if !link.ssid.is_empty() => link.ssid.clone(),
             _ => "Not connected".to_string(),
         };
+        model.prefs_look = crate::config::looks().label();
         model.prefs_about = prefs.about.clone();
 
         // an agenda event's panel: as the settings, the card from behind the right edge and the
@@ -239,6 +255,7 @@ fn present_camera(model: &mut UiModel, state: &State) {
     model.camera_zone = zones;
     model.camera_live = shown(camera.link.on);
     model.camera_offline = shown(!zones);
+    model.camera_live_feed = zones && camera.always_live;
     // the view slides with the library's overlay transitions; its zone is on while it rests on
     // the screen or slides out (camera.rs CameraView)
     model.camera_view = Position::new((0.0, camera.y()), camera.overlay.transition());

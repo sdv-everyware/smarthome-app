@@ -88,6 +88,11 @@ impl State {
             state.panel = Sheet::new(PANEL_LAYOUT);
         }
         state.agenda = crate::agenda_card::AgendaCard::new(heights.agenda, heights.event_body, agenda_measure(), crate::zones::time_zone);
+        // a design with the camera live on its screen: the camera app stays in live video
+        if state.sizes.frame("#camera/live-feed").is_some() {
+            state.camera.always_live = true;
+            crate::camera::set_live(true);
+        }
         state.prefs.build_zones(heights.zones);
         state
     }
@@ -205,6 +210,8 @@ pub struct PrefsSheet {
     pub units: Segmented,
     /// The Wi-Fi row (#prefs/wifi): opens the Wi-Fi sheet.
     pub wifi_row: Pressable,
+    /// The look's row (#prefs/look): a tap takes the next look (config.rs Looks).
+    pub look_row: Pressable,
     /// What the panel is (#prefs/about), read once at the start (about()).
     pub about: String,
     /// The settings groups that came from user_preferences, by name, with their ids: a change
@@ -226,6 +233,7 @@ impl Default for PrefsSheet {
             hour24: Toggle::new(true),
             units: Segmented::new(["°C", "°F"]),
             wifi_row: Pressable::default(),
+            look_row: Pressable::default(),
             about: String::new(),
             groups: Default::default(),
         }

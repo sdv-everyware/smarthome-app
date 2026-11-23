@@ -68,6 +68,26 @@ impl Clock {
         format!("{h}:{:02}", self.min)
     }
 
+    /// The hours alone, for a design that sets them apart from the minutes: "21" on a 24-hour
+    /// clock, "9" on a 12-hour one.
+    pub fn hours_text(&self, hour24: bool) -> String {
+        if self.time.is_empty() {
+            return String::new();
+        }
+        if hour24 {
+            return format!("{:02}", self.hour);
+        }
+        match self.hour % 12 { 0 => 12, h => h }.to_string()
+    }
+
+    /// The minutes alone, two digits.
+    pub fn minutes_text(&self) -> String {
+        if self.time.is_empty() {
+            return String::new();
+        }
+        format!("{:02}", self.min)
+    }
+
     /// Next to the time: the seconds on a 24-hour clock, AM or PM on a 12-hour one.
     pub fn sec_text(&self, hour24: bool) -> String {
         if hour24 || self.time.is_empty() {
@@ -100,5 +120,16 @@ mod tests {
         assert_eq!(format(5, 6, 10, 21, 5, 7).sec_text(true), ":07");
         assert_eq!(format(5, 6, 10, 0, 5, 0).sec_text(false), " AM");
         assert_eq!(format(5, 6, 10, 12, 0, 0).time_text(false), "12:00");
+    }
+
+    #[test]
+    fn the_hours_and_the_minutes_apart() {
+        let c = format(5, 6, 10, 21, 5, 7);
+        assert_eq!((c.hours_text(true), c.minutes_text()), ("21".to_string(), "05".to_string()));
+        assert_eq!(c.hours_text(false), "9");
+        assert_eq!(format(5, 6, 10, 0, 30, 0).hours_text(false), "12");
+        assert_eq!(format(5, 6, 10, 0, 30, 0).hours_text(true), "00");
+        assert_eq!(Clock::default().hours_text(true), "");
+        assert_eq!(Clock::default().minutes_text(), "");
     }
 }

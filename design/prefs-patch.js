@@ -111,6 +111,9 @@ module.exports = function patch(msg, helpers) {
       controlRow('#prefs/hour24', '24-hour clock', toggle);
       section('Weather');
       controlRow('#prefs/units', 'Temperature', segmented);
+      // the look: another screen for the same app (design/looks); a tap takes the next one
+      section('Display');
+      tapRow('#prefs/look', 'Look', 'Classic');
       section('Network');
       tapRow('#prefs/wifi', 'Wi-Fi', 'Not connected');
       section('About');

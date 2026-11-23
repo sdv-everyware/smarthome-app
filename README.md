@@ -24,6 +24,32 @@ sheets, the keyboard and the screens on the Library with the kiwi tools of every
 layers (`#home/*`, `#device/*`, `#panel/*`, `#wifi/*`, ...) are the contract with `src/ui_model.rs`:
 rename both or neither.
 
+## Looks
+
+A look is another screen for the same app: a design of its own with the app's layer names, so
+the code is one and the picture is another. `design/looks/<look>-patch.js` draws the screen on
+the Library, the panel's own patches add the sheets, and `design/looks/<look>-theme.js`
+recolours the whole file, the Library's controls too; `design/looks/build.sh <look>` builds
+`design/looks/<look>.fig` and `data/looks/<look>/smarthome.dcf`.
+
+| Look | What it is |
+|---|---|
+| `window` | the camera live over the whole screen, the time and one bar of glass over it |
+| `poster` | only type: the hours over the minutes, the house as lines |
+| `terminal` | a console in one monospaced face |
+| `retro` | a desktop of the nineties: windows, a task bar |
+
+The settings have the row Look (Display): a tap takes the next look. The app keeps the name in
+the file `look` of its override directory, ends in order and its service starts it again with
+`<data_path>/looks/<name>/smarthome.dcf` (`src/config.rs`, `Looks`). A look draws what it
+needs: a layer the design has not is left out, and what the code writes to it goes nowhere.
+A design without controls on its screen has them in the device sheet (`#device/light`, ...),
+and a tap on `#camera/tap` opens the camera's full view.
+
+The looks are not in the APEX yet: an installed panel has the first look only, and the row
+does nothing there. A run from `/data/local/tmp` with `data/looks` next to the document has
+them all.
+
 ## Build and run on the RB3
 
 ```bash

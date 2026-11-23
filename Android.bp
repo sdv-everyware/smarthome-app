@@ -35,6 +35,7 @@ rust_binary {
     crate_root: "src/main.rs",
     srcs: [
         "data/*.otf",
+        "data/*.ttf",
     ],
     rustlibs: [
         "libclap",

@@ -104,6 +104,9 @@ pub struct CameraView {
     due: Option<Instant>,
     /// The live zone is shown (the view rested on the screen since it opened).
     zone: bool,
+    /// The design shows the camera live on its screen (it has the node #camera/live-feed, as
+    /// a look whose background the camera is): the camera app stays in live video.
+    pub always_live: bool,
 }
 
 /// What `settle` found played out.
@@ -123,6 +126,7 @@ impl Default for CameraView {
             link: Link::default(),
             due: None,
             zone: false,
+            always_live: false,
         }
     }
 }

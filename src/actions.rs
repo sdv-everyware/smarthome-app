@@ -155,8 +155,26 @@ impl StateAction<State, ()> for HomeAction {
                     crate::camera::set_live(true);
                 }
             }
+            HomeAction::Gesture(node, gesture)
+                if node == "#camera/tap" && !state.device.container.is_open() && !state.wifi.form.is_open() =>
+            {
+                // a design without the open button gives the camera a tap target of its own
+                // (a line, a chip): a tap on it opens the full view as the button does
+                if matches!(gesture, Gesture::Up { inside: true, .. }) {
+                    crate::camera::wake_at(state.camera.open(Instant::now()));
+                    crate::camera::set_live(true);
+                }
+            }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
-                on_device_sheet(&mut state.device, &state.devices, &state.dash, node, *gesture)
+                // the device's control in the sheet is the dashboard's own: the gesture goes
+                // to it under the tile's name
+                if let Some(tile) = tile_control(state.device.device, node) {
+                    if let Some(control) = on_dashboard(&mut state.dash, &tile, *gesture) {
+                        send_control(&mut state.matter_pending, &state.devices, control);
+                    }
+                } else {
+                    on_device_sheet(&mut state.device, &state.devices, &state.dash, node, *gesture)
+                }
             }
             HomeAction::Gesture(node, gesture) if DeviceId::of_header(node).is_some() => {
                 // a tile's header opens its device's sheet
@@ -235,6 +253,21 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
             if let Some(ToggleEvent::Toggled(on)) = prefs.hour24.on(gesture) {
                 log::info!("smarthome: 24-hour clock {on}");
                 ask(prefs.change(HOUR_CYCLE_24, Value::Bool(on)));
+            }
+        }
+        "#prefs/look" => {
+            if prefs.look_row.on(gesture) {
+                // the next look is another document: the panel ends here and its service
+                // starts it again with that document (config.rs choose_document)
+                let looks = crate::config::looks();
+                match looks.next().map(|name| (name, looks.set_look(name))) {
+                    Some((name, Ok(()))) => {
+                        log::info!("smarthome: the look {name}: starting again with it");
+                        crate::config::quit();
+                    }
+                    Some((name, Err(e))) => log::warn!("smarthome: the look {name} is not kept: {e}"),
+                    None => log::info!("smarthome: this image has one look"),
+                }
             }
         }
         "#prefs/wifi" => {
@@ -320,7 +353,7 @@ fn on_camera_view(view: &mut crate::camera::CameraView, node: &str, gesture: Ges
 /// The camera's view after its open or close played: the live zone on, or off with the camera
 /// back to stills.
 fn settle_camera(view: &mut crate::camera::CameraView) {
-    if view.settle(Instant::now()) == Some(crate::camera::Settled::Closed) {
+    if view.settle(Instant::now()) == Some(crate::camera::Settled::Closed) && !view.always_live {
         crate::camera::set_live(false);
     }
 }
@@ -539,6 +572,22 @@ fn on_dashboard(d: &mut Dashboard, node: &str, gesture: Gesture) -> Option<Contr
         _ => {}
     }
     None
+}
+
+/// The tile's control that a control of the device sheet stands for: `#device/light` is the
+/// Entryway's `#entryway/light`, and so on (a part keeps what follows the slot's name, as the
+/// fan's segments). None for the other nodes and for a control of another device.
+fn tile_control(device: DeviceId, node: &str) -> Option<String> {
+    let pairs: &[(&str, &str)] = match device {
+        DeviceId::Climate => &[("#device/minus", "#climate/minus"), ("#device/plus", "#climate/plus")],
+        DeviceId::Entryway => &[("#device/light", "#entryway/light")],
+        DeviceId::Bedroom => &[("#device/dimmer", "#bedroom/dimmer")],
+        DeviceId::OfficeFan => &[("#device/fan", "#office/fan")],
+    };
+    pairs.iter().find_map(|(sheet, tile)| {
+        let rest = node.strip_prefix(sheet)?;
+        (rest.is_empty() || rest.starts_with('/')).then(|| format!("{tile}{rest}"))
+    })
 }
 
 /// The device sheet while it is open: ✕ and a tap on the scrim close it, "Show more" adds the

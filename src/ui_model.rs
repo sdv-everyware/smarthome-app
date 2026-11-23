@@ -215,6 +215,10 @@ ui_model! {
     date: String = "#home/date";
     time: String = "#home/time";
     sec: String = "#home/sec";
+    // the hours and the minutes apart, for a look that sets them on two lines (the others
+    // draw #home/time and have no such nodes)
+    hours: String = "#home/hours";
+    minutes: String = "#home/minutes";
 
     // status row: library components in their slots (everyware_ui): harry clones the
     // component into the slot and customizes the clone on its own; taps come by the slot's name
@@ -234,6 +238,8 @@ ui_model! {
 
     // camera, rooms, door, settings, intercom
     camera_open: Slot = "#camera/open" ["SlotCustomizer"];
+    // a tap target of the camera for a design without the open button (a line, a chip)
+    _camera_tap: () = "#camera/tap" interactive;
     entryway_light: Slot = "#entryway/light" ["SlotCustomizer"];
     entryway_state: String = "#entryway/state";
     bedroom_dimmer: Slot = "#bedroom/dimmer" ["SlotCustomizer"];
@@ -266,6 +272,9 @@ ui_model! {
     // connected (camera-app draws its own into the zone when the camera is missing)
     camera_live: DisplayState = "#camera/live" = DisplayState::Gone;
     camera_offline: DisplayState = "#camera/offline";
+    // the camera live on the screen itself, for a design whose background it is: the zone
+    // ZONE_LIVE, on while the camera app is connected (camera.rs always_live)
+    camera_live_feed: bool = "#camera/live-feed" ["CameraViewZoneCustomizer"] = false;
     // The camera's full view (design/camera-patch.js): the whole screen, below it while closed;
     // it slides in and out as a sheet's card (camera.rs CameraView). Its picture is the zone
     // ZONE_LIVE (live video, while the view rests or slides out); the band with the chip and
@@ -400,6 +409,19 @@ ui_model! {
     device_info_list: Slot = "#device/info-list" interactive ["SlotCustomizer"];
     device_info_scrollbar: Slot = "#device/info-list-scrollbar" ["SlotCustomizer"];
     device_more: Slot = "#device/more" ["SlotCustomizer"];
+    // the control of the sheet's device, at the right of its state: the dashboard's own
+    // component in a second slot (a design without controls on its screen has them here); the
+    // controls of the other devices are gone
+    device_light: Slot = "#device/light" ["SlotCustomizer"];
+    device_light_shown: DisplayState = "#device/light" = DisplayState::Gone;
+    device_dimmer: Slot = "#device/dimmer" ["SlotCustomizer"];
+    device_dimmer_shown: DisplayState = "#device/dimmer" = DisplayState::Gone;
+    device_fan: Slot = "#device/fan" ["SlotCustomizer"];
+    device_fan_shown: DisplayState = "#device/fan" = DisplayState::Gone;
+    device_minus: Slot = "#device/minus" ["SlotCustomizer"];
+    device_minus_shown: DisplayState = "#device/minus" = DisplayState::Gone;
+    device_plus: Slot = "#device/plus" ["SlotCustomizer"];
+    device_plus_shown: DisplayState = "#device/plus" = DisplayState::Gone;
 
     // The panel of the browser (built with the cfg browser): #panel, the library's #sheet
     // (design/panel-patch.js) with #panel-content in it, at the right edge; the card and the
@@ -453,6 +475,9 @@ ui_model! {
     prefs_units: Slot = "#prefs/units" ["SlotCustomizer"];
     _prefs_wifi_tap: () = "#prefs/wifi" interactive;
     prefs_wifi: String = "#prefs/wifi/value";
+    // the look's row: a tap takes the next look
+    _prefs_look_tap: () = "#prefs/look" interactive;
+    prefs_look: String = "#prefs/look/value";
     prefs_about: String = "#prefs/about";
 
     // The game: #game, the library's #sheet as a dialog (design/game-patch.js) with #game-content
