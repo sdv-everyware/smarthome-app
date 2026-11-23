@@ -8,6 +8,7 @@ use crate::devices::{DeviceId, Devices, Reported};
 use crate::state::{Dashboard, DeviceSheet, GamePanel, Network, PrefsSheet, PrefsStep, Security, State, Step, WifiSheet, HOUR_CYCLE_24, SETPOINT, STATUS_ENTER, TEMPERATURE, TIMEZONE};
 use user_preferences_api::setting::setting::Value;
 use everyware_catalog::wifi::{WifiCommand, WifiConnect, WifiConnection, WifiNetworks, WifiScan, WifiState};
+use har_platform_api::commlib::api::DocumentSwitch;
 use harry::side_effects::SideEffects;
 use harry::state::StateAction;
 use everyware_ui::{part_of, row_of};
@@ -62,10 +63,13 @@ pub enum HomeAction {
     Browser(crate::browser::BrowserEvent),
     /// What camera-app said on its control socket (camera.rs).
     Camera(crate::camera::Event),
+    /// The design of this look is read and waits in config.rs (`take_new_look`): the state takes
+    /// its sizes and harry swaps the document.
+    Look(usize),
 }
 
 impl StateAction<State, ()> for HomeAction {
-    fn apply(&self, state: &mut State, _side_effects: &mut Vec<SideEffects<()>>) {
+    fn apply(&self, state: &mut State, side_effects: &mut Vec<SideEffects<()>>) {
         if let HomeAction::Gesture(node, gesture) = self {
             log::debug!("smarthome: gesture {gesture:?} on {node}");
         }
@@ -92,6 +96,16 @@ impl StateAction<State, ()> for HomeAction {
             HomeAction::Camera(event) => {
                 state.camera.link.apply(*event);
                 settle_camera(&mut state.camera);
+            }
+            HomeAction::Look(look) => {
+                // the sizes and the document in one step: the first frame of the new document
+                // is laid out with its own sizes
+                if let Some(new) = crate::config::take_new_look(*look) {
+                    let looks = crate::config::looks();
+                    state.set_design(new.sizes);
+                    looks.set_current(*look);
+                    side_effects.push(SideEffects::SwapDocument(DocumentSwitch { document_id: looks.document_id(*look) }, new.responder));
+                }
             }
             HomeAction::Weather(weather) => state.weather = Some(weather.clone()),
             HomeAction::Agenda(agenda) => state.agenda.set(agenda.clone(), &state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now()),
@@ -139,6 +153,8 @@ impl StateAction<State, ()> for HomeAction {
                 // Settings opens the settings sheet
                 if clicked(&mut state.dash.settings, *gesture) {
                     state.prefs.open();
+                    // the Look row is a tap away: the next look is read meanwhile
+                    crate::config::read_next_look_ahead();
                 }
             }
             HomeAction::Gesture(node, gesture) if node == "#status/game" && crate::config::game() && !state.device.container.is_open() && !state.wifi.form.is_open() => {
@@ -237,6 +253,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
     let scrim = node == "#prefs/scrim" && matches!(gesture, Gesture::Up { inside: true, .. });
     if scrim || (node == "#prefs/close" && clicked(&mut prefs.close, gesture)) {
         prefs.sheet.close();
+        crate::config::forget_look_ahead();
         return;
     }
     if prefs.step() == PrefsStep::TimeZone {
@@ -257,15 +274,10 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
         }
         "#prefs/look" => {
             if prefs.look_row.on(gesture) {
-                // the next look is another document: the panel ends here and its service
-                // starts it again with that document (config.rs choose_document)
-                let looks = crate::config::looks();
-                match looks.next().map(|name| (name, looks.set_look(name))) {
-                    Some((name, Ok(()))) => {
-                        log::info!("smarthome: the look {name}: starting again with it");
-                        crate::config::quit();
-                    }
-                    Some((name, Err(e))) => log::warn!("smarthome: the look {name} is not kept: {e}"),
+                // the next look is another document: the running panel swaps to it
+                // (config.rs change_look, then HomeAction::Look)
+                match crate::config::looks().next() {
+                    Some(look) => crate::config::change_look(look),
                     None => log::info!("smarthome: this image has one look"),
                 }
             }
@@ -274,6 +286,7 @@ fn on_prefs(state: &mut State, node: &str, gesture: Gesture) {
             if prefs.wifi_row.on(gesture) {
                 // the settings make way for the Wi-Fi sheet, which starts over every time
                 prefs.sheet.close();
+                crate::config::forget_look_ahead();
                 state.wifi = WifiSheet::opened(state.wifi.networks.clone(), state.wifi.state.clone(), state.heights.wifi);
                 screen_binder::send_wifi_command(wifi_scan());
             }

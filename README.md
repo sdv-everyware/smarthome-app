@@ -45,9 +45,13 @@ recolours the whole file, the Library's controls too; `design/looks/build.sh <lo
 | **Terminal** | **Retro** |
 | ![The look Terminal](docs/images/looks-terminal.png) | ![The look Retro](docs/images/looks-retro.png) |
 
-The settings have the row Look (Display): a tap takes the next look. The app keeps the name in
-the file `look` of its override directory, ends in order and its service starts it again with
-`<data_path>/looks/<name>/smarthome.dcf` (`src/config.rs`, `Looks`). A look draws what it
+The settings have the row Look (Display): a tap takes the next look. The running app reads
+`<data_path>/looks/<name>/smarthome.dcf` and harry swaps its document for it: nothing starts
+again, the zones' clients and the links to the bundles stay. While the settings are open the
+next look's document is read ahead, so a tap starts with the swap (a second tap within about a
+second and a half reads its look itself); it is one document more in memory, about 130 MB,
+for as long as the settings are open. The name is kept in the file
+`look` of the override directory for the next start (`src/config.rs`, `Looks`). A look draws what it
 needs: a layer the design has not is left out, and what the code writes to it goes nowhere.
 A design without controls on its screen has them in the device sheet (`#device/light`, ...),
 and a tap on `#camera/tap` opens the camera's full view.
