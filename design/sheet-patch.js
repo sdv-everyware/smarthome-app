@@ -1,15 +1,17 @@
 // sheet-patch.js: adds the device sheet to the "Smart HOme" Figma file, at the kiwi level.
-// Run after components-patch.js (its #list-item kind text, #symbol, #icon-button icon x,
-// #button, #scrollbar) and after keyboard-patch.js / dashboard-patch.js (build.sh).
+// Run after components-patch.js (its #list-item kind text, #symbol, #icon-button icons x and
+// pencil, #input-field, #button, #scrollbar) and after keyboard-patch.js / dashboard-patch.js (build.sh).
 //
 // A tap on a tile's header (#climate/header, #entryway/header, ...: dashboard-patch.js) opens
 // the sheet of that device, as Apple's Home opens an accessory's card: the device's state large
 // at the top, under it the details as grouped label and value rows, State on the left, Device
-// on the right; "Show more" adds the diagnostics to the Device list.
+// on the right; "Show more" adds the diagnostics to the Device list. The pencil beside ✕ (or a
+// tap on the name) puts an input field in the name's place: the house's name for the device.
 //
 // Adds:
 // - #device-content in the Library: the sheet's content, the size of the dialog's content area
-//   of the library's #sheet (components-patch.js).
+//   of the library's #sheet (components-patch.js), in two variants: state=default with the name
+//   as a text and the pencil, state=rename with the field #device/name in their place.
 // - #device on the dashboard: an instance of #sheet (dialog, closed) over #smarthome-root with
 //   this content swapped in and its parts named #device/scrim, /card, /content (sheetInstance);
 //   the app keeps it open and slides the card itself (ui-lib sheet.rs).
@@ -72,6 +74,8 @@ module.exports = function patch(msg, helpers) {
   const close = variantOf('#icon-button', 'kind=tonal, state=default, icon=x, size=regular');
   const more = variantOf('#button', 'kind=ghost, state=default, size=regular');
   const symbol = variantOf('#symbol', 'icon=house');
+  const edit = variantOf('#icon-button', 'kind=tonal, state=default, icon=pencil, size=regular');
+  const field = variantOf('#input-field', 'state=default');
 
   // a list: a clipping slot with 6 preview rows (harry places the rows at their scrolled y,
   // ui-lib ListView), its scrollbar to the right
@@ -83,13 +87,22 @@ module.exports = function patch(msg, helpers) {
   };
 
   const SHEET_Y = lib.size.y + 80;
-  const contentSet = A.componentSet(lib, '#device-content', 80, SHEET_Y, [['state', ['default']]], CONTENT_W, CONTENT_H, 0, 0, (s) => {
+  const contentSet = A.componentSet(lib, '#device-content', 80, SHEET_Y, [['state', ['default', 'rename']]], CONTENT_W, CONTENT_H, 80, 0, (s, v) => {
     const card = A.hugBox(s, CONTENT_W, CONTENT_H);
     // the header: the symbol, the name, the kind and the model; close at the right
     slotted(card, '#device/symbol', 0, 0, symbol);
-    text(card, '#device/title', 64, 0, 700, 32, 'Home climate', 25, FONT.semibold, C.ink);
-    text(card, '#device/subtitle', 64, 34, 700, 20, 'Thermostat · EveryWare Virtual Home', 15, FONT.regular, C.ink2);
-    slotted(card, '#device/close', CONTENT_W - close.size.x + 12, -16, close);
+    const closeX = CONTENT_W - close.size.x + 12;
+    if (v.state === 'rename') {
+      // the name as a field, where the name and the model were: the field's box (76 high) is
+      // centred on the symbol, its helper line stays empty (the app's) above the state
+      slotted(card, '#device/name', 64, -14, field, [textOverride(field, '#input-field/placeholder', 'Name')]);
+    } else {
+      text(card, '#device/title', 64, 0, 700, 32, 'Home climate', 25, FONT.semibold, C.ink, 'LEFT', 'TOP', { maxLines: 1, textTruncation: 'ENDING' });
+      text(card, '#device/subtitle', 64, 34, 700, 20, 'Thermostat · EveryWare Virtual Home', 15, FONT.regular, C.ink2);
+      // rename: the pencil, left of ✕
+      slotted(card, '#device/edit', closeX - edit.size.x + 8, -16, edit);
+    }
+    slotted(card, '#device/close', closeX, -16, close);
     // the state, large: what the device does now
     text(card, '#device/state', 0, 72, 900, 56, '21.4 °C', 44, FONT.medium, C.ink);
     text(card, '#device/state-detail', 0, 132, 1000, 24, 'Heating to 22.0 °C · 45 % humidity', 17, FONT.regular, C.ink2);

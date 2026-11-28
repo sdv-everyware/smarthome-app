@@ -6,6 +6,7 @@ use everyware_catalog::weather::Weather;
 use everyware_ui::symbol::Symbol;
 use customizations::render_customizations::DisplayState;
 use everyware_ui::{list, scrollbar, slot, slot_shown, Component, Meter, Position, ScreenView, Scrolled, TapTarget, Variant};
+use crate::devices::DeviceId;
 use crate::weather::{bars, words, Picture};
 use crate::agenda_card::{EventStep, EVENT_EFFECT};
 use crate::state::{PrefsStep, State, PREFS_EFFECT, SCREEN, SCREENS, SCREEN_EFFECT};
@@ -37,6 +38,11 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         present_camera(model, state);
         model.entryway_light = slot("#entryway/light", &d.light);
         model.entryway_state = if d.light.value { "On" } else { "Off" }.to_string();
+        // the tiles' titles: a device the house named shows that name
+        model.climate_title = state.devices.tile_title(DeviceId::Climate).to_string();
+        model.entryway_title = state.devices.tile_title(DeviceId::Entryway).to_string();
+        model.bedroom_title = state.devices.tile_title(DeviceId::Bedroom).to_string();
+        model.office_title = state.devices.tile_title(DeviceId::OfficeFan).to_string();
         model.bedroom_dimmer = slot("#bedroom/dimmer", &d.dimmer);
         model.bedroom_level = format!("{}%", d.dimmer.value.round());
         model.office_fan = slot("#office/fan", &d.fan);
@@ -103,7 +109,10 @@ impl Presenter<State, UiModel> for UiModelPresenter {
         model.device_scrim = Meter::new(device.container.scrim(), slide);
         model.device_scrim_taps = TapTarget(device.container.is_open());
         model.device_symbol = slot("#device/symbol", &Symbol::new(device.view.symbol));
+        model.device_content = Variant(device.content_variant());
         model.device_title = device.view.name.clone();
+        model.device_edit = slot("#device/edit", &device.edit);
+        model.device_name = slot("#device/name", device.name_field());
         model.device_subtitle = device.view.subtitle.clone();
         model.device_close = slot("#device/close", &device.close);
         model.device_state = device.view.state.clone();

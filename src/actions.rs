@@ -21,7 +21,7 @@ use everyware_ui::slider::SliderEvent;
 use everyware_ui::toggle::ToggleEvent;
 use everyware_ui::Gesture;
 use everyware_catalog::matter::MatterDevices;
-use everyware_catalog::matter_service::{MatterCommand, MatterMoveToLevel, MatterSetFanMode, MatterSetOnOff, MatterSetSetpoint};
+use everyware_catalog::matter_service::{MatterCommand, MatterMoveToLevel, MatterRename, MatterSetFanMode, MatterSetOnOff, MatterSetSetpoint};
 use everyware_catalog::calendar::Agenda;
 use everyware_catalog::weather::Weather;
 use std::time::Instant;
@@ -156,7 +156,7 @@ impl StateAction<State, ()> for HomeAction {
                 }
             }
             HomeAction::Gesture(node, gesture) if state.device.container.is_open() => {
-                on_device_sheet(&mut state.device, &state.devices, &state.dash, node, *gesture)
+                on_device_sheet(&mut state.device, &mut state.devices, &state.dash, &mut state.osk, node, *gesture)
             }
             HomeAction::Gesture(node, gesture) if DeviceId::of_header(node).is_some() => {
                 // a tile's header opens its device's sheet
@@ -190,7 +190,7 @@ impl StateAction<State, ()> for HomeAction {
             }
         }
         // the screen's keyboard follows the focus (every form of the screen, or'ed)
-        state.osk.follow(state.wifi.form.focused().is_some());
+        state.osk.follow(state.wifi.form.focused().is_some() || state.device.rename.focused().is_some());
         // the agenda's rows follow the clock (a new minute), the zone and the clock's format; the
         // event's panel stops waiting for an answer that does not come
         state.agenda.follow(&state.prefs.timezone, state.prefs.hour24.value, jiff::Timestamp::now());
@@ -465,6 +465,10 @@ fn on_matter_result(pending: &mut [Option<Instant>; 4], devices: &Devices, resul
     } else {
         log::warn!("smarthome: Matter {} node {:#x} ep{}: {}", result.command, result.node_id, result.endpoint, result.result.error);
     }
+    // a name is not a control: nothing waits for its answer (the name comes with the next report)
+    if result.command == "rename" {
+        return;
+    }
     for (i, b) in devices.bindings.iter().enumerate() {
         if b.is_some_and(|b| b.node_id == result.node_id && b.endpoint == result.endpoint) {
             pending[i] = None;
@@ -542,8 +546,31 @@ fn on_dashboard(d: &mut Dashboard, node: &str, gesture: Gesture) -> Option<Contr
 }
 
 /// The device sheet while it is open: ✕ and a tap on the scrim close it, "Show more" adds the
-/// diagnostics, the lists scroll; a tap on the card between its parts does nothing.
-fn on_device_sheet(sheet: &mut DeviceSheet, devices: &Devices, dash: &Dashboard, node: &str, gesture: Gesture) {
+/// diagnostics, the lists scroll; a tap on the card between its parts does nothing. The pencil
+/// or a tap on the name makes the name a field: Done on the keyboard gives the device that name,
+/// ✕ or a tap on the scrim drops what was typed and keeps the sheet.
+fn on_device_sheet(sheet: &mut DeviceSheet, devices: &mut Devices, dash: &Dashboard, osk: &mut KeyboardDock, node: &str, gesture: Gesture) {
+    if sheet.renaming {
+        // the form (ui-lib) owns the field and types through the screen's keyboard
+        if let Some(event) = sheet.rename.on(node, gesture, Instant::now(), &mut osk.keyboard) {
+            match event {
+                FormEvent::Edited(_) => {
+                    // no longer than a name may be: what does not fit is not typed
+                    let field = sheet.rename.field_mut(0);
+                    if field.text.len() > crate::devices::NAME_MAX_BYTES {
+                        let mut end = crate::devices::NAME_MAX_BYTES;
+                        while !field.text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        field.text.truncate(end);
+                    }
+                }
+                FormEvent::Submitted(_) => rename_device(sheet, devices, dash),
+                FormEvent::Focused(_) => {}
+            }
+            return;
+        }
+    }
     for (list_node, list) in [("#device/state-list", &mut sheet.state_list), ("#device/info-list", &mut sheet.info_list)] {
         if node == list_node || node.strip_prefix(list_node).is_some_and(|rest| rest.starts_with('/')) {
             let row = node.strip_prefix(list_node).and_then(|r| r.strip_prefix('/')).and_then(|r| r.parse().ok());
@@ -554,18 +581,55 @@ fn on_device_sheet(sheet: &mut DeviceSheet, devices: &Devices, dash: &Dashboard,
     match node {
         "#device/close" => {
             if sheet.close.on(gesture) == Some(ButtonEvent::Clicked) {
-                sheet.container.close();
+                if sheet.renaming {
+                    sheet.end_rename();
+                } else {
+                    sheet.close();
+                }
             }
         }
+        "#device/edit" => {
+            if sheet.edit.on(gesture) == Some(ButtonEvent::Clicked) {
+                sheet.start_rename(Instant::now());
+            }
+        }
+        "#device/title" if matches!(gesture, Gesture::Up { inside: true, .. }) && !sheet.renaming => sheet.start_rename(Instant::now()),
         "#device/more" => {
             if sheet.more.on(gesture) == Some(ButtonEvent::Clicked) {
                 sheet.toggle_diagnostics(devices, dash);
             }
         }
         // the scrim takes taps only while the sheet is open (TapTarget in the UI model)
-        "#device/scrim" if matches!(gesture, Gesture::Up { inside: true, .. }) => sheet.container.close(),
+        "#device/scrim" if matches!(gesture, Gesture::Up { inside: true, .. }) => {
+            if sheet.renaming {
+                sheet.end_rename();
+            } else {
+                sheet.close();
+            }
+        }
         _ => {}
     }
+}
+
+/// Done on the keyboard: the device gets the name in the field (an empty one takes its name
+/// away). The screen shows it at once; the Matter bundle keeps it and reports it with the device.
+fn rename_device(sheet: &mut DeviceSheet, devices: &mut Devices, dash: &Dashboard) {
+    use everyware_catalog::matter_service::matter_command::Command;
+    let name = crate::devices::name_of(&sheet.name_field().text);
+    let index = sheet.device.index();
+    devices.names[index] = Some(name.clone()).filter(|n| !n.is_empty());
+    match devices.bindings[index] {
+        Some(b) => {
+            let mut r = MatterRename::new();
+            (r.node_id, r.endpoint, r.name) = (b.node_id, b.endpoint, name);
+            let mut command = MatterCommand::new();
+            command.command = Some(Command::Rename(r));
+            screen_binder::send_matter_command(command);
+        }
+        None => log::info!("smarthome: {:?}: no Matter device for this tile, its name is the screen's until it restarts", sheet.device),
+    }
+    sheet.end_rename();
+    sheet.refresh(devices, dash);
 }
 
 /// The Wi-Fi sheet while it is open.

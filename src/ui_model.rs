@@ -241,6 +241,11 @@ ui_model! {
     office_fan: Slot = "#office/fan" ["SlotCustomizer"];
     office_state: String = "#office/state";
     // the tiles' headers: a tap opens the device's sheet (#device)
+    // the tiles' titles: the house's name for the device, else the design's text
+    climate_title: String = "#climate/title";
+    entryway_title: String = "#entryway/title";
+    bedroom_title: String = "#bedroom/title";
+    office_title: String = "#office/title";
     _climate_header: () = "#climate/header" interactive;
     _entryway_header: () = "#entryway/header" interactive;
     _bedroom_header: () = "#bedroom/header" interactive;
@@ -389,7 +394,15 @@ ui_model! {
     device_card: Position = "#device/card" ["FollowPositionCustomizer"] = Position::new(crate::state::DEVICE_LAYOUT.closed(crate::state::SCREEN), None);
     _device_card_tap: () = "#device/card" interactive;
     device_symbol: Slot = "#device/symbol" ["SlotCustomizer"];
+    // the content's variant: the name as a text with the pencil (state=default) or as the field
+    // (state=rename), switched without an animation, as the Wi-Fi sheet's step
+    device_content: Variant = "#device/content" = Variant("state=default".to_string());
+    device_content_animation: AnimationOverride = "#device/content";
     device_title: String = "#device/title";
+    // a tap on the name starts the rename too
+    _device_title_tap: () = "#device/title" interactive;
+    device_edit: Slot = "#device/edit" ["SlotCustomizer"];
+    device_name: Slot = "#device/name" ["SlotCustomizer"];
     device_subtitle: String = "#device/subtitle";
     device_close: Slot = "#device/close" ["SlotCustomizer"];
     device_state: String = "#device/state";

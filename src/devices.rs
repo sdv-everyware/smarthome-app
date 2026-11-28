@@ -52,6 +52,32 @@ impl DeviceId {
         }
     }
 
+    /// The tile's title in the design (dashboard-patch.js names the designer's text): the room,
+    /// shown while the house gave the device no name.
+    pub fn tile_title(self) -> &'static str {
+        match self {
+            DeviceId::Climate => "Home climate",
+            DeviceId::Entryway => "Entryway",
+            DeviceId::Bedroom => "Bedroom",
+            DeviceId::OfficeFan => "Office",
+        }
+    }
+
+    /// The device's name in its sheet while the house gave it none.
+    pub fn default_name(self) -> &'static str {
+        match self {
+            DeviceId::Climate => "Home climate",
+            DeviceId::Entryway => "Entryway",
+            DeviceId::Bedroom => "Bedroom",
+            DeviceId::OfficeFan => "Office fan",
+        }
+    }
+
+    /// The device's place in `ALL` (the order of the bindings and the names).
+    pub fn index(self) -> usize {
+        DeviceId::ALL.iter().position(|d| *d == self).expect("a device of the dashboard")
+    }
+
     /// The device whose tile header is `node`.
     pub fn of_header(node: &str) -> Option<DeviceId> {
         DeviceId::ALL.into_iter().find(|d| d.header() == node)
@@ -122,6 +148,23 @@ pub struct Devices {
     pub office_fan: (Fan, DeviceInfo),
     /// The tiles' devices in the fabric, in DeviceId::ALL's order; None: no such device.
     pub bindings: [Option<Binding>; 4],
+    /// The names the house gave the devices (MatterEndpoint.name, the sheet's rename), in the
+    /// same order; None: no name, the screen's own word.
+    pub names: [Option<String>; 4],
+}
+
+/// The longest name of a device, in bytes of UTF-8 (the catalog's MatterEndpoint.name).
+pub const NAME_MAX_BYTES: usize = 32;
+
+/// `text` as a device's name: no space at its ends, at most NAME_MAX_BYTES, cut between two
+/// characters. The Matter bundle cleans it again (control characters, runs of spaces).
+pub fn name_of(text: &str) -> String {
+    let text = text.trim();
+    let mut end = text.len().min(NAME_MAX_BYTES);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].trim_end().to_string()
 }
 
 /// What the devices report of the values the dashboard controls: the dashboard follows them.
@@ -222,9 +265,11 @@ impl Devices {
             let found = report.nodes.iter().find_map(|n| n.endpoints.iter().find(|e| e.device_type == id.device_type()).map(|e| (n, e)));
             let Some((node, ep)) = found else {
                 self.bindings[i] = None;
+                self.names[i] = None;
                 continue;
             };
             self.bindings[i] = Some(Binding { node_id: node.node_id, endpoint: ep.id });
+            self.names[i] = Some(ep.name.clone()).filter(|n| !n.is_empty());
             let info = DeviceInfo {
                 vendor: Some(node.vendor.clone()).filter(|v| !v.is_empty()),
                 product: Some(node.product.clone()).filter(|v| !v.is_empty()),
@@ -268,13 +313,24 @@ impl Devices {
         reported
     }
 
+    /// The name the house gave `id`, if any.
+    pub fn name(&self, id: DeviceId) -> Option<&str> {
+        self.names[id.index()].as_deref()
+    }
+
+    /// The title of `id`'s tile: the house's name for the device, else the design's.
+    pub fn tile_title(&self, id: DeviceId) -> &str {
+        self.name(id).unwrap_or(id.tile_title())
+    }
+
     /// The sheet of `id` with the dashboard's state `dash`.
     pub fn view(&self, id: DeviceId, dash: &Dashboard) -> DeviceView {
-        let (name, kind, symbol, info) = match id {
-            DeviceId::Climate => ("Home climate", "Thermostat", SymbolIcon::House, &self.climate.1),
-            DeviceId::Entryway => ("Entryway", "On/off light", SymbolIcon::DoorOpen, &self.entryway.1),
-            DeviceId::Bedroom => ("Bedroom", "Dimmable light", SymbolIcon::BedDouble, &self.bedroom.1),
-            DeviceId::OfficeFan => ("Office fan", "Fan", SymbolIcon::Armchair, &self.office_fan.1),
+        let name = self.name(id).unwrap_or(id.default_name());
+        let (kind, symbol, info) = match id {
+            DeviceId::Climate => ("Thermostat", SymbolIcon::House, &self.climate.1),
+            DeviceId::Entryway => ("On/off light", SymbolIcon::DoorOpen, &self.entryway.1),
+            DeviceId::Bedroom => ("Dimmable light", SymbolIcon::BedDouble, &self.bedroom.1),
+            DeviceId::OfficeFan => ("Fan", SymbolIcon::Armchair, &self.office_fan.1),
         };
         let model = match (&info.vendor, &info.product) {
             (Some(v), Some(p)) => format!("{kind} · {v} {p}"),

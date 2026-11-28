@@ -334,14 +334,32 @@ const { C, FONT } = helpers;
   // 6. the device sheet's targets (sheet-patch.js): a tap on a tile's header opens its device.
   // The whole header is the target (the chevron alone is 20 x 20, too small to hit); nothing
   // changes in the drawing. The climate's header has no chevron.
-  find('Climate control', 'Section heading').name = '#climate/header';
+  // The tiles' titles get names too (#climate/title, #entryway/title, ...): the app writes the
+  // name the house gave the device there (the device sheet's rename), on one line, cut with an
+  // ellipsis where the tile ends.
+  const oneLine = (title, name) => {
+    title.name = name;
+    Object.assign(title, { textAutoResize: 'NONE', maxLines: 1, textTruncation: 'ENDING' });
+    log(`${JSON.stringify(title.textData.characters)} -> ${name} (${Math.round(title.size.x)} x ${Math.round(title.size.y)})`);
+  };
+  const climateHeader = find('Climate control', 'Section heading');
+  climateHeader.name = '#climate/header';
+  const climateTitle = kids(key(climateHeader.guid)).find(n => n.type === 'TEXT');
+  if (!climateTitle) throw new Error('Climate control: no text in its Section heading');
+  // the designer's box hugs "Home climate": as wide as the header leaves beside its other parts,
+  // so a longer name fits before it is cut
+  const beside = kids(key(climateHeader.guid)).filter(n => n !== climateTitle).reduce((w, n) => w + n.size.x, 0);
+  climateTitle.size = { x: Math.max(climateTitle.size.x, climateHeader.size.x - beside - 16), y: climateTitle.size.y };
+  oneLine(climateTitle, '#climate/title');
   for (const roomControl of nodes.filter(n => n.name === 'Room control' && n.type === 'FRAME')) {
     const header = kids(key(roomControl.guid)).find(n => n.name === 'Room header');
     const identity = kids(key(roomControl.guid)).find(n => n.name === 'Room identity');
     const room = identity && kids(key(identity.guid)).find(n => n.name === 'Room');
     if (!header || !room) throw new Error('Room control: no Room header / Room identity');
-    header.name = `#${room.textData.characters.toLowerCase()}/header`;
+    const id = room.textData.characters.toLowerCase();
+    header.name = `#${id}/header`;
     log(`${room.textData.characters}: Room header -> ${header.name}`);
+    oneLine(room, `#${id}/title`);
   }
 
   log(`added ${A.count()} nodes`);

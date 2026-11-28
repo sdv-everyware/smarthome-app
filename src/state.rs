@@ -2,6 +2,7 @@
  * smarthome-app: application state. Only the reducer thread changes it (actions.rs).
  */
 
+use std::time::Instant;
 use everyware_ui::button::{Button, ButtonKind, Icon, IconButton, IconButtonKind};
 use everyware_ui::dropdown::Dropdown;
 use everyware_ui::dock::KeyboardDock;
@@ -730,6 +731,13 @@ pub struct DeviceSheet {
     /// The buttons (slots #device/close, #device/more).
     pub close: IconButton,
     pub more: Button,
+    /// The pencil (slot #device/edit): the name becomes a field.
+    pub edit: IconButton,
+    /// The name is being changed: the content shows its variant with the field.
+    pub renaming: bool,
+    /// The field the name is typed into (slot #device/name), in a form of its own for the
+    /// screen's keyboard (ui-lib). Only its field is used: the sheet is `container`.
+    pub rename: Form,
 }
 
 impl Default for DeviceSheet {
@@ -743,9 +751,15 @@ impl Default for DeviceSheet {
             info_list: ListView::new([], 0.0, DEVICE_ROW_PITCH),
             close: IconButton::new(IconButtonKind::Tonal, Icon::Close),
             more: Button::new(ButtonKind::Ghost, "Show more"),
+            edit: IconButton::new(IconButtonKind::Tonal, Icon::Pencil),
+            renaming: false,
+            rename: Form::new(DEVICE_LAYOUT, [(DEVICE_NAME, InputField::new("Name", ""))]),
         }
     }
 }
+
+/// The slot of the field a device's name is typed into.
+pub const DEVICE_NAME: &str = "#device/name";
 
 /// A label and its value as a row of the sheet's lists.
 fn value_row((label, value): &(String, String)) -> ListItem {
@@ -774,6 +788,37 @@ impl DeviceSheet {
         self.state_list.set_rows(self.view.state_rows.iter().map(value_row));
         let diagnostics = if self.diagnostics { self.view.diagnostic_rows.as_slice() } else { &[] };
         self.info_list.set_rows(self.view.info_rows.iter().chain(diagnostics).map(value_row));
+    }
+
+    /// The content's variant: the name as a text with the pencil, or as the field.
+    pub fn content_variant(&self) -> String {
+        if self.renaming { "state=rename" } else { "state=default" }.to_string()
+    }
+
+    /// The field the name is typed into.
+    pub fn name_field(&self) -> &InputField {
+        self.rename.field(0)
+    }
+
+    /// The name becomes a field with the name in it and the focus: the keyboard opens.
+    pub fn start_rename(&mut self, now: Instant) {
+        self.renaming = true;
+        let field = self.rename.field_mut(0);
+        field.text = self.view.name.clone();
+        field.error = None;
+        self.rename.focus(0, now);
+    }
+
+    /// Back to the name as a text; what was typed is dropped. The keyboard closes.
+    pub fn end_rename(&mut self) {
+        self.renaming = false;
+        self.rename.blur();
+    }
+
+    /// Closes the sheet, and a rename with it.
+    pub fn close(&mut self) {
+        self.end_rename();
+        self.container.close();
     }
 
     /// "Show more" adds the diagnostics to the Device list, "Show less" takes them away.

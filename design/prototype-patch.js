@@ -311,5 +311,14 @@ module.exports = function patch(msg, helpers) {
   delete root.prototypeStartingPoint;
   ov.prototypeStartingPoint = { name: 'Smart Home', description: 'Tap a tab, the Wi-Fi button, a tile header or an agenda event (Overview), or a device tile (Rooms)', position: '!' };
   log(`added ${A.count()} nodes: ${SCREENS.length} screen frames and ${3 + DEVICES.length} overlay frames on Page 1, ${ilocal} taps (tabs, Wi-Fi, tile headers, device tiles, hotspots)`);
+  // The screen's keyboard is over every sheet, as a system keyboard: a sheet added after it
+  // (the device sheet with its name field, sheet-patch.js) would draw over the keys. Its layer
+  // gets the last place among the root's children ('~~~' sorts after every position the patches
+  // give).
+  const keyboardLayer = kids(key(root.guid)).find(n => n.name === 'Keyboard layer');
+  if (!keyboardLayer) throw new Error('Keyboard layer missing: run keyboard-patch.js first');
+  keyboardLayer.parentIndex = { guid: keyboardLayer.parentIndex.guid, position: '~~~' };
+  log('Keyboard layer: the last of the root\'s children, over every sheet');
+
   return msg;
 };
